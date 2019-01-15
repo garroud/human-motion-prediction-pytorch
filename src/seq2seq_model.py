@@ -78,27 +78,27 @@ class Seq2SeqModel(nn.Module):
 
         # === Create the RNN that will keep the state ===
         print('rnn_size= {0}'.format(rnn_size))
-        self.encoder = nn.GRU(self.input_size-1,self.rnn_size,num_layers,batch_first=True)
+        self.encoder = nn.GRU(input_size=self.input_size,hidden_size=self.rnn_size,num_layers=num_layers)
         if architecture == "tied":
             self.decoder = self.encoder
         elif architecture == "basic_rnn_seq2seq":
-            self.decoder = nn.GRU(self.input_size-1, self.rnn_size, num_layers,batch_first=True)
+            self.decoder = nn.GRU(input_size=self.input_size,hidden_size=self.rnn_size,num_layers=num_layers)
         else:
             raise(ValueError, "Unknown architecture: %s " % architecture )
         self.linear = nn.Linear(self.rnn_size, self.input_size)
+        #Initial the linear op
+        torch.nn.init.uniform_(self.linear.weight, -0.04 , 0.04)
         self.decoder = decoderWrapper.DecoderWrapper(self.decoder, self.linear, target_seq_len, residual_velocities,dtype)
 
         self.loss = nn.MSELoss(reduction='mean')
 
+
     def forward(self, encoder_input, decoder_input):
-        h0 = torch.zeros(self.batch_size, self.num_layers, self.rnn_size).cuda()
-        _ , interState = self.encoder(encoder_input,h0)
-        last_frame = decoder_input[:,0,:].view(self.batch.size,1,-1)
+        # h0 = torch.zeros(self.num_layers, self.batch_size, self.rnn_size).cuda()
+        _ , interState = self.encoder(encoder_input,None)
+        last_frame = decoder_input[0,:,:].view(1,-1,self.input_size)
         output, state = self.decoder(last_frame,interState)
         return output, state
-
-    def decay(self):
-        self.learning_rate *= learning_rate_decay_factor
 
     def get_batch( self, data, actions ):
         """Get a random batch of data from the specified bucket, prepare for step.

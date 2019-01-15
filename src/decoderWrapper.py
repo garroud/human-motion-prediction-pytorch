@@ -19,11 +19,12 @@ class DecoderWrapper(nn.Module):
         self._linear = linear
         self.target_seq_len = target_seq_len
         self.residual = residual_velocities
+        self.dtype= dtype
 
     def forward(self,input,state):
-        output = torch.zeros(self.target_seq_len, input.shape[1], input.shape[2] ,require_grad=True, dtype=dtype).cuda()
+        output = torch.zeros(self.target_seq_len, input.shape[1], input.shape[2] ,requires_grad=False, dtype=self.dtype).cuda()
         for i in xrange(self.target_seq_len):
             input, state = self._cell(input, state)
-            input = self.linear(input) + input if residual else self.linear(input)
+            input = self._linear(input) + input if self.residual else self._linear(input)
             output[i] = input
         return output, state

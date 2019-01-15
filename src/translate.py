@@ -117,16 +117,17 @@ def train():
 
     step_time, loss = 0, 0
     optimizer = torch.optim.SGD(model.parameters(), lr=FLAGS.learning_rate)
-
     for _ in xrange(FLAGS.iterations):
 
         start_time = time.time()
-        encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch( train_set, not FLAGS.omit_one_hot )
-        encoder_inputs = torch.tensor(encoder_inputs).to(device)
-        decoder_inputs = torch.tensor(encoder_inputs).to(device)
-        decoder_outputs = torch.tensor(encoder_inputs).to(device)
+        encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch(train_set, not FLAGS.omit_one_hot )
+        encoder_inputs = torch.tensor(encoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
+        decoder_inputs = torch.tensor(decoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
+        decoder_outputs = torch.tensor(decoder_outputs,dtype=torch.float32).permute(1,0,2).to(device)
+
         output, _ = model(encoder_inputs, decoder_inputs)
         optimizer.zero_grad()
+
         step_loss = model.loss(output, decoder_outputs)
         step_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(),FLAGS.max_gradient_norm)
@@ -141,15 +142,16 @@ def train():
 
         ## step decay ##
         if current_step % FLAGS.learning_rate_step == 0:
-            model.decay()
+            for g in optimizer.param_groups:
+                g['lr'] *= FLAGS.learning_rate_decay_factor
 
         ## Validation step ##
         if current_step % FLAGS.test_every == 0:
-            encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch( test_set, not FLAGS.omit_one_hot )
+            encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch(test_set, not FLAGS.omit_one_hot )
             ##TODO: a forward pass
-            encoder_inputs = torch.tensor(encoder_inputs).to(device)
-            decoder_inputs = torch.tensor(encoder_inputs).to(device)
-            decoder_outputs = torch.tensor(encoder_inputs).to(device)
+            encoder_inputs = torch.tensor(encoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
+            decoder_inputs = torch.tensor(decoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
+            decoder_outputs = torch.tensor(decoder_outputs,dtype=torch.float32).permute(1,0,2).to(device)
             output, _ = model(encoder_inputs, decoder_inputs)
             step_loss = model.loss(output,decoder_outputs)
             val_loss = step_loss
@@ -162,15 +164,15 @@ def train():
             # === Validation with srnn's seeds ===
             for action in actions:
                 # Evaluate the model on the test batches
-                encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn( test_set, action )
-                encoder_inputs = torch.tensor(encoder_inputs).to_device()
-                decoder_inputs = torch.tensor(encoder_inputs).to_device()
-                decoder_outputs = torch.tensor(encoder_inputs).to_device()
+                encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn(test_set, action)
+                encoder_inputs = torch.tensor(encoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
+                decoder_inputs = torch.tensor(decoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
+                decoder_outputs = torch.tensor(decoder_outputs,dtype=torch.float32).permute(1,0,2).to(device)
                 srnn_poses, _ = model(encoder_inputs, decoder_inputs)
                 srnn_loss = model.loss(srnn_poses,decoder_outputs)
 
                 # Denormalize the output
-                srnn_pred_expmap = data_utils.revert_output_format( srnn_poses,
+                srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(),
                   data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot )
 
                 # Save the errors here
