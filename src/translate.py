@@ -44,6 +44,7 @@ parser.add_argument("--loss_to_use",default="sampling_based", metavar='S', help=
 
 parser.add_argument("--test_every", default=1000, type=int, metavar='N', help="How often to compute error on the test set.")
 parser.add_argument("--save_every", default=1000, type=int, metavar='N', help="How often to compute error on the test set.")
+parser.add_argument("--show_every", default=100, type=int, metavar='N', help="How often to show error during training.")
 parser.add_argument("--sample", action='store_true' ,help="Set to True for sampling.")
 parser.add_argument("--use_cpu", action='store_true', help="Whether to use the CPU")
 parser.add_argument("--load", default=0, type=int, metavar='N', help="Try to load a previous checkpoint.")
@@ -65,6 +66,8 @@ summaries_dir = os.path.normpath(os.path.join( train_dir, "log" )) # Directory f
 
 device = torch.device('cpu' if FLAGS.use_cpu else 'cuda')
 
+transform = lambda x: torch.tensor(x, dtype=torch.float32).permute(1,0,2).to(device)
+
 def create_model(actions, sampling=False):
 
     model = seq2seq_model.Seq2SeqModel(
@@ -73,20 +76,24 @@ def create_model(actions, sampling=False):
         FLAGS.seq_length_out if not sampling else 100,
         FLAGS.size, # hidden layer size
         FLAGS.num_layers,
-        FLAGS.max_gradient_norm,
         FLAGS.batch_size,
-        FLAGS.learning_rate,
-        FLAGS.learning_rate_decay_factor,
         summaries_dir,
         FLAGS.loss_to_use if not sampling else "sampling_based",
         len( actions ),
+        device,
         not FLAGS.omit_one_hot,
         FLAGS.residual_velocities,
         dtype=torch.float32)
+    #initalize a new model
     if FLAGS.load <= 0:
         print("Creating model with fresh parameters.")
         #TODO: Initial parameter here
         return model
+    #Load model from iteration
+    if os.path.isfile(os.path.join(train_dir, 'checkpoint-{0}.pt'.format(FLAGS.load))):
+        model.load_state_dict(torch.load(os.path.join(train_dir, 'checkpoint-{0}.pt'.format(FLAGS.load))))
+    else:
+        raise ValueError("Asked to load checkpoint {0}, but it does not seem to exist".format(FLAGS.load))
 
     #TODO: Load a pretarined model
     return model
@@ -116,24 +123,23 @@ def train():
     previous_losses = []
 
     step_time, loss = 0, 0
-    optimizer = torch.optim.SGD(model.parameters(), lr=FLAGS.learning_rate)
+    lr = FLAGS.learning_rate
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     for _ in xrange(FLAGS.iterations):
 
         start_time = time.time()
         encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch(train_set, not FLAGS.omit_one_hot )
-        encoder_inputs = torch.tensor(encoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
-        decoder_inputs = torch.tensor(decoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
-        decoder_outputs = torch.tensor(decoder_outputs,dtype=torch.float32).permute(1,0,2).to(device)
 
-        output, _ = model(encoder_inputs, decoder_inputs)
+        model.train()
+        output, _ = model(transform(encoder_inputs), transform(decoder_inputs))
         optimizer.zero_grad()
 
-        step_loss = model.loss(output, decoder_outputs)
+        step_loss = model.loss(output, transform(decoder_outputs))
         step_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(),FLAGS.max_gradient_norm)
         optimizer.step()
 
-        if current_step % 10 == 0:
+        if current_step % FLAGS.show_every == 0:
             print("step {0:04d}; step_loss: {1:.4f}".format(current_step, step_loss ))
 
         step_time += (time.time() - start_time) / FLAGS.test_every
@@ -142,18 +148,17 @@ def train():
 
         ## step decay ##
         if current_step % FLAGS.learning_rate_step == 0:
+            lr *= FLAGS.learning_rate_decay_factor
             for g in optimizer.param_groups:
-                g['lr'] *= FLAGS.learning_rate_decay_factor
+                g['lr'] = lr
 
         ## Validation step ##
         if current_step % FLAGS.test_every == 0:
             encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch(test_set, not FLAGS.omit_one_hot )
             ##TODO: a forward pass
-            encoder_inputs = torch.tensor(encoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
-            decoder_inputs = torch.tensor(decoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
-            decoder_outputs = torch.tensor(decoder_outputs,dtype=torch.float32).permute(1,0,2).to(device)
-            output, _ = model(encoder_inputs, decoder_inputs)
-            step_loss = model.loss(output,decoder_outputs)
+            model.eval()
+            output, _ = model(transform(encoder_inputs), transform(decoder_inputs))
+            step_loss = model.loss(output,transform(decoder_outputs))
             val_loss = step_loss
             print()
             print("{0: <16} |".format("milliseconds"), end="")
@@ -165,11 +170,8 @@ def train():
             for action in actions:
                 # Evaluate the model on the test batches
                 encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn(test_set, action)
-                encoder_inputs = torch.tensor(encoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
-                decoder_inputs = torch.tensor(decoder_inputs,dtype=torch.float32).permute(1,0,2).to(device)
-                decoder_outputs = torch.tensor(decoder_outputs,dtype=torch.float32).permute(1,0,2).to(device)
-                srnn_poses, _ = model(encoder_inputs, decoder_inputs)
-                srnn_loss = model.loss(srnn_poses,decoder_outputs)
+                srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
+                srnn_loss = model.loss(srnn_poses,transform(decoder_outputs))
 
                 # Denormalize the output
                 srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(),
@@ -229,8 +231,8 @@ def train():
                   "--------------------------\n"
                   "Val loss:            %.4f\n"
                   "srnn loss:           %.4f\n"
-                  "============================" % (model.global_step,
-                  model.learning_rate, step_time*1000, loss,
+                  "============================" % (current_step,
+                  lr, step_time*1000, loss,
                   val_loss, srnn_loss))
             print()
 
@@ -239,7 +241,7 @@ def train():
             # Save the model
             if current_step % FLAGS.save_every == 0:
               print( "Saving the model..." ); start_time = time.time()
-              torch.save(model.state_dict(), os.path.normpath(os.path.join(train_dir, 'checkpoint')))
+              torch.save(model.state_dict(), os.path.normpath(os.path.join(train_dir, 'checkpoint-{0}.pt'.format(current_step))))
               print( "done in {0:.2f} ms".format( (time.time() - start_time)*1000) )
 
             # Reset global time and loss
@@ -297,48 +299,37 @@ def sample():
     raise( ValueError, "Must give an iteration to read parameters from")
 
   actions = define_actions( FLAGS.action )
+  print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
+  sampling = True
+  model = create_model(actions, sampling=True)
+  model.eval().to(device)
+  print("Model created")
 
-  # Use the CPU if asked to
-  device_count = {"GPU": 0} if FLAGS.use_cpu else {"GPU": 1}
-  with tf.Session(config=tf.ConfigProto( device_count = device_count )) as sess:
+  # Load all the data
+  train_set, test_set, data_mean, data_std, dim_to_ignore, dim_to_use = read_all_data(
+    actions, FLAGS.seq_length_in, FLAGS.seq_length_out, FLAGS.data_dir, not FLAGS.omit_one_hot )
 
-    # === Create the model ===
-    print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
-    sampling     = True
-    model = create_model(sess, actions, sampling)
-    print("Model created")
+  # === Read and denormalize the gt with srnn's seeds, as we'll need them
+  # many times for evaluation in Euler Angles ===
+  srnn_gts_expmap = get_srnn_gts( actions, model, test_set, data_mean,
+                            data_std, dim_to_ignore, not FLAGS.omit_one_hot, to_euler=False )
+  srnn_gts_euler = get_srnn_gts( actions, model, test_set, data_mean,
+                            data_std, dim_to_ignore, not FLAGS.omit_one_hot )
 
-    # Load all the data
-    train_set, test_set, data_mean, data_std, dim_to_ignore, dim_to_use = read_all_data(
-      actions, FLAGS.seq_length_in, FLAGS.seq_length_out, FLAGS.data_dir, not FLAGS.omit_one_hot )
+  # Clean and create a new h5 file of samples
+  SAMPLES_FNAME = 'samples.h5'
+  try:
+    os.remove( SAMPLES_FNAME )
+  except OSError:
+    pass
 
-    # === Read and denormalize the gt with srnn's seeds, as we'll need them
-    # many times for evaluation in Euler Angles ===
-    srnn_gts_expmap = get_srnn_gts( actions, model, test_set, data_mean,
-                              data_std, dim_to_ignore, not FLAGS.omit_one_hot, to_euler=False )
-    srnn_gts_euler = get_srnn_gts( actions, model, test_set, data_mean,
-                              data_std, dim_to_ignore, not FLAGS.omit_one_hot )
+  for actions in actions:
 
-    # Clean and create a new h5 file of samples
-    SAMPLES_FNAME = 'samples.h5'
-    try:
-      os.remove( SAMPLES_FNAME )
-    except OSError:
-      pass
-
-    # Predict and save for each action
-    for action in actions:
-
-      # Make prediction with srnn' seeds
-      encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn( test_set, action )
-      forward_only = True
-      srnn_seeds = True
-      srnn_loss, srnn_poses, _ = model.step(sess, encoder_inputs, decoder_inputs, decoder_outputs, forward_only, srnn_seeds)
-
-      # denormalizes too
-      srnn_pred_expmap = data_utils.revert_output_format( srnn_poses, data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot )
-
-      # Save the conditioning seeds
+      #Make prediction with srnn's seeds
+      encoder_inputs, decoder_inputes, decoder_outputs = model.get_batch_srnn(test_set, action)
+      srnn_poses = model(transform(encoder_inputs), transform(decoder_inputs))
+      srnn_loss = model.loss(srnn_poses, transform(decoder_outputs))
+      srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(), data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot)
 
       # Save the samples
       with h5py.File( SAMPLES_FNAME, 'a' ) as hf:
@@ -381,7 +372,6 @@ def sample():
         hf.create_dataset( node_name, data=mean_mean_errors )
 
   return
-
 
 def define_actions( action ):
   """

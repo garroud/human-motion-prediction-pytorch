@@ -25,13 +25,11 @@ class Seq2SeqModel(nn.Module):
                 target_seq_len,
                 rnn_size,
                 num_layers,
-                max_gradient_norm,
                 batch_size,
-                learning_rate,
-                learning_rate_decay_factor,
                 summaries_dir,
                 loss_to_use,
                 number_of_actions,
+                device,
                 one_hot=True,
                 residual_velocities=False,
                 dtype=torch.float32):
@@ -43,12 +41,9 @@ class Seq2SeqModel(nn.Module):
         target_seq_len: lenght of the target sequence.
         rnn_size: number of units in the rnn.
         num_layers: number of rnns to stack.
-        max_gradient_norm: gradients will be clipped to maximally this norm.
         batch_size: the size of the batches used during training;
         the model construction is independent of batch_size, so it can be
         changed after initialization if this is convenient, e.g., for decoding.
-        learning_rate: learning rate to start with.
-        learning_rate_decay_factor: decay learning rate by this much when needed.
         summaries_dir: where to log progress for tensorboard.
         loss_to_use: [supervised, sampling_based]. Whether to use ground truth in
         each timestep to compute the loss after decoding, or to feed back the
@@ -56,6 +51,7 @@ class Seq2SeqModel(nn.Module):
         number_of_actions: number of classes we have.
         one_hot: whether to use one_hot encoding during train/test (sup models).
         residual_velocities: whether to use a residual connection that models velocities.
+        device: cpu or gpu to compute
         dtype: the data type to use to store internal variables.
         """
         super(Seq2SeqModel, self).__init__()
@@ -72,9 +68,7 @@ class Seq2SeqModel(nn.Module):
         self.target_seq_len = target_seq_len
         self.rnn_size = rnn_size
         self.batch_size = batch_size
-        self.learning_rate = learning_rate
         self.num_layers = num_layers
-        self.global_step = 0
 
         # === Create the RNN that will keep the state ===
         print('rnn_size= {0}'.format(rnn_size))
@@ -88,8 +82,7 @@ class Seq2SeqModel(nn.Module):
         self.linear = nn.Linear(self.rnn_size, self.input_size)
         #Initial the linear op
         torch.nn.init.uniform_(self.linear.weight, -0.04 , 0.04)
-        self.decoder = decoderWrapper.DecoderWrapper(self.decoder, self.linear, target_seq_len, residual_velocities,dtype)
-
+        self.decoder = decoderWrapper.DecoderWrapper(self.decoder, self.linear, target_seq_len, residual_velocities,device, dtype)
         self.loss = nn.MSELoss(reduction='mean')
 
 
