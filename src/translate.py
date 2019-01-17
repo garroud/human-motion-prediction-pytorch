@@ -199,7 +199,6 @@ def train():
                   # See https://github.com/asheshjain399/RNNexp/issues/6#issuecomment-249404882
                   gt_i=np.copy(srnn_gts_euler[action][i])
                   gt_i[:,0:6] = 0
-
                   # Now compute the l2 error. The following is numpy port of the error
                   # function provided by Ashesh Jain (in matlab), available at
                   # https://github.com/asheshjain399/RNNexp/blob/srnn/structural_rnn/CRFProblems/H3.6m/dataParser/Utils/motionGenerationError.m#L40-L54
@@ -323,11 +322,11 @@ def sample():
   except OSError:
     pass
 
-  for actions in actions:
+  for action in actions:
 
       #Make prediction with srnn's seeds
-      encoder_inputs, decoder_inputes, decoder_outputs = model.get_batch_srnn(test_set, action)
-      srnn_poses = model(transform(encoder_inputs), transform(decoder_inputs))
+      encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn(test_set, action)
+      srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
       srnn_loss = model.loss(srnn_poses, transform(decoder_outputs))
       srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(), data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot)
 

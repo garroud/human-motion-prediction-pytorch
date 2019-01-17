@@ -1,4 +1,6 @@
 #!/bin/bash
 
 #Train the model
-python src/translate.py --action walking --seq_length_out 25 --iterations 10000 --residual_velocities
+
+NOW=$(date +"%Y%m%d%H%M%S")
+python src/translate.py --learning_rate 0.005 --residual_velocities 2>&1 | tee logs/log-$NOW.txt
