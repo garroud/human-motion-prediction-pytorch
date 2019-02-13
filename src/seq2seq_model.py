@@ -75,7 +75,7 @@ class Seq2SeqModel(nn.Module):
         self.encoder = nn.GRU(input_size=self.input_size,hidden_size=self.rnn_size,num_layers=num_layers)
         if architecture == "tied":
             self.decoder = self.encoder
-        elif architecture == "basic_rnn_seq2seq":
+        elif architecture == "basic":
             self.decoder = nn.GRU(input_size=self.input_size,hidden_size=self.rnn_size,num_layers=num_layers)
         else:
             raise(ValueError, "Unknown architecture: %s " % architecture )

@@ -73,7 +73,7 @@ def create_model(actions, sampling=False):
     model = seq2seq_model.Seq2SeqModel(
         FLAGS.architecture,
         FLAGS.seq_length_in if not sampling else 50,
-        FLAGS.seq_length_out if not sampling else 100,
+        FLAGS.seq_length_out if not sampling else 25,
         FLAGS.size, # hidden layer size
         FLAGS.num_layers,
         FLAGS.batch_size,
@@ -172,7 +172,6 @@ def train():
                 encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn(test_set, action)
                 srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
                 srnn_loss = model.loss(srnn_poses,transform(decoder_outputs))
-
                 # Denormalize the output
                 srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(),
                   data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot )
