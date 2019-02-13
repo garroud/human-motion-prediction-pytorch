@@ -51,6 +51,10 @@ Finally, to visualize the samples,
 ```bash
 python src/forward_kinematics.py
 ```
+If it works, it should produce some visualization like 
+ 
+![Walking](https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/walking_py.gif)
+
 ### RNN models
 
 To train and reproduce the results of our models, use the following commands
