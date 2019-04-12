@@ -14,15 +14,16 @@ import argparse
 
 import numpy as np
 from six.moves import xrange # pylint: disable=redefined-builtin
+from helper import *
 
 import data_utils
 import seq2seq_model
-
+import discriminator
 import torch
 
 parser = argparse.ArgumentParser(description="Human Motion Model")
 #Learning specification
-parser.add_argument('--learning_rate', default=0.005, type=float, metavar='N', help='Initial learning rate.')
+parser.add_argument('--learning_rate', default=0.05, type=float, metavar='N', help='Initial learning rate.')
 parser.add_argument('--learning_rate_decay_factor', default=0.95, type=float, metavar='N', help='Learning rate is multiplied by this much.')
 parser.add_argument('--learning_rate_step', default=10000, type=int, metavar="N",help="Every this many steps, do decay.")
 parser.add_argument('--max_gradient_norm', default=5, type=int, metavar='N', help="Clip gradients to this norm")
@@ -33,7 +34,7 @@ parser.add_argument('--architecture', default='tied', type=str, metavar='S', hel
 parser.add_argument("--size", default=1024, type=int, metavar='N', help="Size of each model layer.")
 parser.add_argument("--num_layers", default=1, type=int, metavar='N', help="Number of layers in the model.")
 parser.add_argument("--seq_length_in", default=50, type=int, metavar='N', help="Number of frames to feed into the encoder. 25 fps")
-parser.add_argument("--seq_length_out", default=10, type=int, metavar='N', help="Number of frames that the decoder has to predict. 25fps")
+parser.add_argument("--seq_length_out", default=25, type=int, metavar='N', help="Number of frames that the decoder has to predict. 25fps")
 parser.add_argument("--omit_one_hot", action='store_true', help="Whether to remove one-hot encoding from the data")
 parser.add_argument("--residual_velocities", action='store_true', help="Add a residual connection that effectively models velocities")
 parser.add_argument("--data_dir", default=os.path.normpath("./data/h3.6m/dataset"), type=str, metavar='S', help="Data directory")
@@ -47,8 +48,18 @@ parser.add_argument("--save_every", default=1000, type=int, metavar='N', help="H
 parser.add_argument("--show_every", default=100, type=int, metavar='N', help="How often to show error during training.")
 parser.add_argument("--sample", action='store_true' ,help="Set to True for sampling.")
 parser.add_argument("--use_cpu", action='store_true', help="Whether to use the CPU")
-parser.add_argument("--load", default=0, type=int, metavar='N', help="Try to load a previous checkpoint.")
-
+parser.add_argument("--load", default=0, type=int, metavar='N', help="Try to load a previous checkpoint")
+###params for IRL training###
+parser.add_argument("--irl_training", action="store_true", help="set to use IRL training scheme")
+parser.add_argument("--train_discrim_iter", default=20000, type=int, metavar="N", help="Pretrain iterations for train discriminator.")
+parser.add_argument("--train_GAN_iter", default=20000, type=int, metavar="N", help="training iterations for the GAN training.")
+parser.add_argument("--policy_lr", default = 0.01, type=float,  metavar="N", help= "learning rate of adversarial training of policy net")
+parser.add_argument("--discrim_lr", default = 0.005, type=float, metavar="N", help= "learning rate of adversarial training of descrim net")
+parser.add_argument("--discrim_hidden_size", default=1024, type=int, metavar='N', help= "hidden size of discriminator net")
+parser.add_argument("--discrim_num_layers", default=1, type=int, metavar="N", help="number of layers in the discriminator")
+parser.add_argument("--discrim_load", default=-1, type=int, metavar="N", help= "load pretrained model to discriminator")
+parser.add_argument("--stochastic", action="store_true", help="use stochastic training approach")
+parser.add_argument("--skip_pretrain_policy", action="store_true", help="skip pretrain process of policy net")
 FLAGS = parser.parse_args()
 
 train_dir = os.path.normpath(os.path.join( FLAGS.train_dir, FLAGS.action,
@@ -60,17 +71,18 @@ train_dir = os.path.normpath(os.path.join( FLAGS.train_dir, FLAGS.action,
   'depth_{0}'.format(FLAGS.num_layers),
   'size_{0}'.format(FLAGS.size),
   'lr_{0}'.format(FLAGS.learning_rate),
-  'residual_vel' if FLAGS.residual_velocities else 'not_residual_vel'))
+  'residual_vel' if FLAGS.residual_velocities else 'not_residual_vel',
+  'irl_training' if FLAGS.irl_training else 'normal training',
+  'stochastic_sampling' if FLAGS.stochastic else 'no sampling'))
 
 summaries_dir = os.path.normpath(os.path.join( train_dir, "log" )) # Directory for TB summaries
 
 device = torch.device('cpu' if FLAGS.use_cpu else 'cuda')
 
 transform = lambda x: torch.tensor(x, dtype=torch.float32).permute(1,0,2).to(device)
-
 def create_model(actions, sampling=False):
 
-    model = seq2seq_model.Seq2SeqModel(
+    policy_net = seq2seq_model.Seq2SeqModel(
         FLAGS.architecture,
         FLAGS.seq_length_in if not sampling else 50,
         FLAGS.seq_length_out if not sampling else 25,
@@ -83,23 +95,191 @@ def create_model(actions, sampling=False):
         device,
         not FLAGS.omit_one_hot,
         FLAGS.residual_velocities,
+        stochastic = True,
         dtype=torch.float32)
+
+    discrim_net = discriminator.Discriminator(
+        not FLAGS.omit_one_hot,
+        FLAGS.discrim_hidden_size,
+        FLAGS.batch_size,
+        FLAGS.discrim_num_layers,
+        len( actions )
+    )
+
     #initalize a new model
-    if FLAGS.load <= 0:
+    if FLAGS.load <= 0 and FLAGS.discrim_load <=0:
         print("Creating model with fresh parameters.")
         #TODO: Initial parameter here
-        return model
+        return policy_net, discrim_net
     #Load model from iteration
-    if os.path.isfile(os.path.join(train_dir, 'checkpoint-{0}.pt'.format(FLAGS.load))):
-        model.load_state_dict(torch.load(os.path.join(train_dir, 'checkpoint-{0}.pt'.format(FLAGS.load))))
-    else:
-        raise ValueError("Asked to load checkpoint {0}, but it does not seem to exist".format(FLAGS.load))
+    if os.path.isfile(os.path.join(train_dir, 'pretrain-policy-checkpoint-{0}.pt'.format(FLAGS.load))):
+        policy_net.load_state_dict(torch.load(os.path.join(train_dir, 'pretrain-policy-checkpoint-{0}.pt'.format(FLAGS.load))))
+    elif FLAGS.load > 0:
+        raise ValueError("Asked to load pretrain policy checkpoint {0}, but it does not seem to exist".format(FLAGS.load))
 
-    #TODO: Load a pretarined model
-    return model
+    if os.path.isfile(os.path.join(train_dir, 'pretrain-discrim-checkpoint-{0}.pt'.format(FLAGS.discrim_load))):
+        policy_net.load_state_dict(torch.load(os.path.join(train_dir, 'discrim-checkpoint-{0}.pt'.format(FLAGS.load))))
+    elif FLAGS.discrim_load > 0:
+        raise ValueError("Asked to load pretrain discrim checkpoint {0}, but it does not seem to exist".format(FLAGS.discrim_load))
+
+    return policy_net, discrim_net
+
+#TODO: train with the GAIL framework.
+def train_IRL():
+    actions = define_actions(FLAGS.action)
+    number_of_actions = len(actions)
+    train_set, test_set, data_mean, data_std, dim_to_ignore, dim_to_use = read_all_data(
+        actions, FLAGS.seq_length_in, FLAGS.seq_length_out, FLAGS.data_dir, not FLAGS.omit_one_hot )
+    print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
+    #There should be two net for the task
+    policy_net, discrim_net = create_model(actions, sampling=False)
+    policy_net.to(device)
+    #TODO: define discriminator
+    discrim_net.to(device)
+    print("Model created.")
+
+    # === Read and denormalize the gt with srnn's seeds, as we'll need them
+    # many times for evaluation in Euler Angles ===
+    srnn_gts_euler = get_srnn_gts( actions, policy_net, test_set, data_mean,
+                          data_std, dim_to_ignore, not FLAGS.omit_one_hot )
+
+
+    ############################################################################
+    ################# Pretrain policy network ##################################
+    ############################################################################
+    if FLAGS.skip_pretrain_policy:
+        if not os.path.isfile(os.path.join(train_dir, 'pretrain-policy-checkpoint-best.pt'.format(FLAGS.load))):
+            raise ValueError("the best policy checkpoint does not seem to exist".format(FLAGS.load))
+    else:
+        step_time, loss, val_loss, best_loss = 0.0, 0.0, 0.0, 0.0
+        # current_step = 0 if FLAGS.load <= 0 else FLAGS.load + 1
+        current_step = 0
+
+        previous_losses = []
+
+        step_time, loss = 0, 0
+        lr = FLAGS.learning_rate
+        optimizer = torch.optim.SGD(policy_net.parameters(), lr=lr)
+        for _ in xrange(FLAGS.iterations):
+
+            start_time = time.time()
+            encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(train_set, not FLAGS.omit_one_hot)
+            policy_net.train()
+            means,stds, _ , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
+            optimizer.zero_grad()
+            target = (transform(decoder_outputs) -transform(decoder_inputs))[:,:,:policy_net.HUMAN_SIZE]
+            step_loss = policy_net.loss(means, stds, target)
+            step_loss.backward()
+            torch.nn.utils.clip_grad_norm_(policy_net.parameters(),FLAGS.max_gradient_norm)
+            optimizer.step()
+
+            if current_step % FLAGS.show_every == 0:
+                print("step {0:04d}; step_loss: {1:.4f}".format(current_step, step_loss ))
+
+            step_time += (time.time() - start_time) / FLAGS.test_every
+            loss += step_loss / FLAGS.test_every
+            current_step += 1
+
+            ## step decay ##
+            if current_step % FLAGS.learning_rate_step == 0:
+                lr *= FLAGS.learning_rate_decay_factor
+                for g in optimizer.param_groups:
+                    g['lr'] = lr
+
+            ## Validation step ##
+            if current_step % FLAGS.test_every == 0:
+                encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(test_set, not FLAGS.omit_one_hot)
+                policy_net.eval()
+                means, stds, _, _= policy_net(transform(encoder_inputs), transform(decoder_inputs))
+                target = (transform(decoder_outputs) - transform(decoder_inputs))[:,:,:policy_net.HUMAN_SIZE]
+                step_loss = policy_net.loss(means, stds, target)
+                val_loss = step_loss
+                print("traing generator, iter {0:04d}: val loss: {1:.4f}".format(current_step, val_loss))
+
+            # Save the best model
+            if best_loss == 0 or best_loss > val_loss:
+                best_loss = val_loss
+                torch.save(policy_net.state_dict(), os.path.normpath(os.path.join(train_dir, 'pretrain-policy-checkpoint-best.pt')))
+
+            # Save the model periodically
+            if current_step % FLAGS.save_every == 0:
+                print( "Saving the model..." ); start_time = time.time()
+                torch.save(policy_net.state_dict(), os.path.normpath(os.path.join(train_dir, 'pretrain-policy-checkpoint-{0}.pt'.format(current_step))))
+                print( "done in {0:.2f} ms".format( (time.time() - start_time)*1000))
+
+            # Reset global time and loss
+            step_time, loss = 0, 0
+            sys.stdout.flush()
+
+    print ("policy net pretrain is done.")
+
+    ############################################################################
+    #########################   Start Adeversial Training ######################
+    ############################################################################
+
+    # load the best pretained policy
+    policy_state_dict = torch.load(os.path.normpath(os.path.join(train_dir, 'pretrain-policy-checkpoint-best.pt')))
+    policy_net.load_state_dict(policy_state_dict)
+    print("Load the best model for policy net")
+
+    # optimizer
+    optimizer_policy = torch.optim.Adam(policy_net.parameters(), lr=FLAGS.policy_lr)
+    optimizer_discrim = torch.optim.Adam(discrim_net.parameters(), lr=FLAGS.discrim_lr)
+    discrim_criterion = nn.BCELoss()
+    discrim_criterion.to(device)
+    discrim_net.train()
+    policy_net.eval()
+    ###pretrain discriminator
+    for i in range(FLAGS.train_discrim_iter):
+        encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(train_set, not FLAGS.omit_one_hot)
+        _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
+        expert_state, expert_action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), transform(decoder_outputs))
+        state, action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), predict_seq)
+        pre_mod_p, pre_exp_p = update_discrim(3.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
+        if (i+1) % FLAGS.show_every == 0:
+            print("train discriminator: iter ", (i+1), ' exp: ', pre_exp_p, ' mod: ', pre_mod_p)
+        if pre_mod_p < 0.3:
+            break
+
+    # Save pretrain discriminator model
+    torch.save(discrim_net.state_dict(), os.path.normpath(os.path.join(train_dir, 'pretrain-discrim-checkpoint.pt')))
+
+    print ("Discrim net pretrain is done.")
+
+    #####################################################################
+    ########################### GAN training ############################
+    #####################################################################
+    discrim_net.train()
+    policy_net.train()
+    exp_p = []
+    mod_p = []
+    for i_iter in range(FLAGS.train_GAN_iter):
+        # ts0 = time.time()
+        encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(train_set, not FLAGS.omit_one_hot)
+        _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
+        expert_state, expert_action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), transform(decoder_outputs))
+        state, action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), predict_seq)
+        # ts1 = time.time()
+
+        # t0 = time.time()
+        pre_mod_p, pre_exp_p = update_discrim(2.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
+
+        exp_p.append(pre_exp_p)
+        mod_p.append(pre_mod_p)
+
+        #update policy network
+        if i_iter > 3 and mod_p[-1] < 0.8:
+            update_policy(policy_net, optimizer_policy, discrim_net, discrim_criterion, state, action,FLAGS.seq_length_in,10.0, device)
+        t1 = time.time()
+
+        if (i_iter + 1) % FLAGS.show_every == 0:
+            print("train discriminator: iter ", (i_iter+1), ' exp: ', pre_exp_p, ' mod: ', pre_mod_p)
+
+        if (i_iter + 1) % FLAGS.save_every == 0:
+            os.path.normpath(os.path.join(train_dir, 'policy-checkpoint-{0}.pt'.format(i_iter + 1)))
+            os.path.normpath(os.path.join(train_dir, 'discrim-checkpoint-{0}.pt'.format(i_iter + 1)))
 
 def train():
-
     actions = define_actions(FLAGS.action)
     number_of_actions = len(actions)
     train_set, test_set, data_mean, data_std, dim_to_ignore, dim_to_use = read_all_data(
@@ -134,7 +314,7 @@ def train():
         output, _ = model(transform(encoder_inputs), transform(decoder_inputs))
         optimizer.zero_grad()
 
-        step_loss = model.loss(output, transform(decoder_outputs))
+        step_loss = model.loss(output[:,:,:model.HUMAN_SIZE], transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
         step_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(),FLAGS.max_gradient_norm)
         optimizer.step()
@@ -158,7 +338,7 @@ def train():
             ##TODO: a forward pass
             model.eval()
             output, _ = model(transform(encoder_inputs), transform(decoder_inputs))
-            step_loss = model.loss(output,transform(decoder_outputs))
+            step_loss = model.loss(output[:,:,:model.HUMAN_SIZE],transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
             val_loss = step_loss
             print()
             print("{0: <16} |".format("milliseconds"), end="")
@@ -171,7 +351,7 @@ def train():
                 # Evaluate the model on the test batches
                 encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn(test_set, action)
                 srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
-                srnn_loss = model.loss(srnn_poses,transform(decoder_outputs))
+                srnn_loss = model.loss(srnn_poses[:,:,:model.HUMAN_SIZE],transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
                 # Denormalize the output
                 srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(),
                   data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot )
@@ -299,7 +479,7 @@ def sample():
   actions = define_actions( FLAGS.action )
   print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
   sampling = True
-  model = create_model(actions, sampling=True)
+  model, _ = create_model(actions, sampling=True)
   model.eval().to(device)
   print("Model created")
 
@@ -325,8 +505,11 @@ def sample():
 
       #Make prediction with srnn's seeds
       encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch_srnn(test_set, action)
-      srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
-      srnn_loss = model.loss(srnn_poses, transform(decoder_outputs))
+      if not FLAGS.stochastic:
+          srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
+      else:
+          _,_,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
+      srnn_loss = nn.MSELoss(reduction='mean')(srnn_poses, transform(decoder_outputs))
       srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(), data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot)
 
       # Save the samples
@@ -441,7 +624,9 @@ def read_all_data( actions, seq_length_in, seq_length_out, data_dir, one_hot ):
 
 
 if __name__ == "__main__":
-      if FLAGS.sample:
+    if FLAGS.sample:
         sample()
-      else:
+    elif FLAGS.irl_training:
+        train_IRL()
+    else:
         train()

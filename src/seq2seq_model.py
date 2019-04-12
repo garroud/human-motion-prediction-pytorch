@@ -11,7 +11,7 @@ import os
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import data_utils
 import decoderWrapper
-
+from helper import *
 import torch
 import torch.nn as nn
 
@@ -32,6 +32,7 @@ class Seq2SeqModel(nn.Module):
                 device,
                 one_hot=True,
                 residual_velocities=False,
+                stochastic = False,
                 dtype=torch.float32):
         """Create the model.
 
@@ -69,7 +70,7 @@ class Seq2SeqModel(nn.Module):
         self.rnn_size = rnn_size
         self.batch_size = batch_size
         self.num_layers = num_layers
-
+        self.stochastic = stochastic
         # === Create the RNN that will keep the state ===
         print('rnn_size= {0}'.format(rnn_size))
         self.encoder = nn.GRU(input_size=self.input_size,hidden_size=self.rnn_size,num_layers=num_layers)
@@ -79,19 +80,32 @@ class Seq2SeqModel(nn.Module):
             self.decoder = nn.GRU(input_size=self.input_size,hidden_size=self.rnn_size,num_layers=num_layers)
         else:
             raise(ValueError, "Unknown architecture: %s " % architecture )
-        self.linear = nn.Linear(self.rnn_size, self.input_size)
-        #Initial the linear op
-        torch.nn.init.uniform_(self.linear.weight, -0.04 , 0.04)
-        self.decoder = decoderWrapper.DecoderWrapper(self.decoder, self.linear, target_seq_len, residual_velocities,device, dtype)
-        self.loss = nn.MSELoss(reduction='mean')
+        # self.linear = nn.Linear(self.rnn_size, self.HUMAN_SIZE)
 
+        if not stochastic:
+            self.decoder = decoderWrapper.DecoderWrapper(self.decoder, self.rnn_size,self.HUMAN_SIZE,target_seq_len, residual_velocities,device,  dtype)
+            self.loss = nn.MSELoss(reduction='mean')
+        else:
+            self.decoder = decoderWrapper.StochasticDecoderWrapper(
+                self.decoder,
+                self.rnn_size,
+                self.HUMAN_SIZE,
+                target_seq_len,
+                residual_velocities,
+                device,
+                dtype)
+            self.loss = nll_gauss
 
     def forward(self, encoder_input, decoder_input):
         # h0 = torch.zeros(self.num_layers, self.batch_size, self.rnn_size).cuda()
-        _ , interState = self.encoder(encoder_input,None)
+        features , inter_state = self.encoder(encoder_input,None)
         last_frame = decoder_input[0,:,:].view(1,-1,self.input_size)
-        output, state = self.decoder(last_frame,interState)
-        return output, state
+        if not self.stochastic:
+            output, state = self.decoder(last_frame, inter_state)
+            return output, state
+        else:
+            means, stds, samples, state = self.decoder(last_frame, inter_state)
+            return means, stds, samples, state
 
     def get_batch( self, data, actions ):
         """Get a random batch of data from the specified bucket, prepare for step.
