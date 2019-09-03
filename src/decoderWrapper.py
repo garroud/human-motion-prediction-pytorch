@@ -65,27 +65,40 @@ class StochasticDecoderWrapper(nn.Module):
         # self.dec = nn.Sequential(
         #                      nn.Linear(self.rnn_size, self.inter_dim),
         #                      nn.ReLU())
-        self.mean = nn.Linear(self.rnn_size, self.output_size)
+        self.mean = nn.Sequential(
+            nn.Linear(self.rnn_size, self.rnn_size),
+            nn.ReLU(),
+            nn.Linear(self.rnn_size, self.output_size)
+        )
         self.std = nn.Sequential(
+            nn.Linear(self.rnn_size, self.rnn_size),
+            nn.ReLU(),
             nn.Linear(self.rnn_size, self.output_size),
-            nn.Softplus())
+            nn.Softplus(),
+        )
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.uniform_(m.weight, -0.05, 0.05)
+                nn.init.uniform_(m.weight, -0.03, 0.03)
 
 
     def forward(self, input, state):
         output_mean = torch.zeros(self.target_seq_len,input.shape[1], self.output_size ,requires_grad=False, dtype=self.dtype).to(self.device)
         output_std = torch.zeros(self.target_seq_len,input.shape[1], self.output_size ,requires_grad=False, dtype=self.dtype).to(self.device)
         output_sample = torch.zeros(self.target_seq_len,input.shape[1], input.shape[2] ,requires_grad=False, dtype=self.dtype).to(self.device)
+        last_mean = input[0,:,:self.output_size]
         for i in xrange(self.target_seq_len):
             temp, state = self._cell(input, state)
             mean = self.mean(temp)
-            std =  self.std(temp)
+            std =  torch.clamp(self.std(temp), min=1e-4)
             next_frame = input.clone()
             next_frame[:,:,:self.output_size] = reparam_sample_gauss(mean, std) + input[:,:,:self.output_size] if self.residual else reparam_sample_gauss(mean, std)
-            output_mean[i] = mean
+            output_mean[i] = mean + last_mean if self.residual else mean
             output_std[i] = std
+            last_mean = output_mean[i]
             output_sample[i] = next_frame
-            input = next_frame
+            # using the stochastic sample as the input of next stage
+            # input = next_frame[i]
+            # use mean as the input of the next stage
+            input = input.clone()
+            input[:,:,:self.output_size] = last_mean
         return output_mean, output_std, output_sample, state

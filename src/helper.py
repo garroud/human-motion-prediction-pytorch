@@ -35,6 +35,8 @@ def update_policy(policy_net, optimizer_policy, discrim_net, discrim_criterion, 
     torch.nn.utils.clip_grad_norm_(policy_net.parameters(), clip_grad_norm)
     optimizer_policy.step()
 
+    return g_o.cpu().data.mean()
+
 # get the state and action for training, the shape is seq * batch * dim
 def get_state_action(encoder_inputs, decoder_inputs, decoder_outputs):
     try:

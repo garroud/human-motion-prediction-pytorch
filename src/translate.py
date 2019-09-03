@@ -51,10 +51,10 @@ parser.add_argument("--use_cpu", action='store_true', help="Whether to use the C
 parser.add_argument("--load", default=0, type=int, metavar='N', help="Try to load a previous checkpoint")
 ###params for IRL training###
 parser.add_argument("--irl_training", action="store_true", help="set to use IRL training scheme")
-parser.add_argument("--train_discrim_iter", default=20000, type=int, metavar="N", help="Pretrain iterations for train discriminator.")
+parser.add_argument("--train_discrim_iter", default=2000, type=int, metavar="N", help="Pretrain iterations for train discriminator.")
 parser.add_argument("--train_GAN_iter", default=20000, type=int, metavar="N", help="training iterations for the GAN training.")
-parser.add_argument("--policy_lr", default = 0.01, type=float,  metavar="N", help= "learning rate of adversarial training of policy net")
-parser.add_argument("--discrim_lr", default = 0.005, type=float, metavar="N", help= "learning rate of adversarial training of descrim net")
+parser.add_argument("--policy_lr", default = 0.1, type=float,  metavar="N", help= "learning rate of adversarial training of policy net")
+parser.add_argument("--discrim_lr", default = 0.01, type=float, metavar="N", help= "learning rate of adversarial training of descrim net")
 parser.add_argument("--discrim_hidden_size", default=1024, type=int, metavar='N', help= "hidden size of discriminator net")
 parser.add_argument("--discrim_num_layers", default=1, type=int, metavar="N", help="number of layers in the discriminator")
 parser.add_argument("--discrim_load", default=-1, type=int, metavar="N", help= "load pretrained model to discriminator")
@@ -112,15 +112,15 @@ def create_model(actions, sampling=False):
         #TODO: Initial parameter here
         return policy_net, discrim_net
     #Load model from iteration
-    if os.path.isfile(os.path.join(train_dir, 'pretrain-policy-checkpoint-{0}.pt'.format(FLAGS.load))):
-        policy_net.load_state_dict(torch.load(os.path.join(train_dir, 'pretrain-policy-checkpoint-{0}.pt'.format(FLAGS.load))))
+    if os.path.isfile(os.path.join(train_dir, 'policy-checkpoint-{0}.pt'.format(FLAGS.load))):
+        policy_net.load_state_dict(torch.load(os.path.join(train_dir, 'policy-checkpoint-{0}.pt'.format(FLAGS.load))))
     elif FLAGS.load > 0:
-        raise ValueError("Asked to load pretrain policy checkpoint {0}, but it does not seem to exist".format(FLAGS.load))
+        raise ValueError("Asked to load policy checkpoint {0}, but it does not seem to exist".format(FLAGS.load))
 
-    if os.path.isfile(os.path.join(train_dir, 'pretrain-discrim-checkpoint-{0}.pt'.format(FLAGS.discrim_load))):
+    if os.path.isfile(os.path.join(train_dir, 'discrim-checkpoint-{0}.pt'.format(FLAGS.discrim_load))):
         policy_net.load_state_dict(torch.load(os.path.join(train_dir, 'discrim-checkpoint-{0}.pt'.format(FLAGS.load))))
     elif FLAGS.discrim_load > 0:
-        raise ValueError("Asked to load pretrain discrim checkpoint {0}, but it does not seem to exist".format(FLAGS.discrim_load))
+        raise ValueError("Asked to load discrim checkpoint {0}, but it does not seem to exist".format(FLAGS.discrim_load))
 
     return policy_net, discrim_net
 
@@ -223,23 +223,24 @@ def train_IRL():
     print("Load the best model for policy net")
 
     # optimizer
-    optimizer_policy = torch.optim.Adam(policy_net.parameters(), lr=FLAGS.policy_lr)
-    optimizer_discrim = torch.optim.Adam(discrim_net.parameters(), lr=FLAGS.discrim_lr)
+    optimizer_policy = torch.optim.SGD(policy_net.parameters(), lr=FLAGS.policy_lr)
+    optimizer_discrim = torch.optim.SGD(discrim_net.parameters(), lr=FLAGS.discrim_lr)
     discrim_criterion = nn.BCELoss()
     discrim_criterion.to(device)
     discrim_net.train()
-    policy_net.eval()
+    policy_net.train()
+
     ###pretrain discriminator
     for i in range(FLAGS.train_discrim_iter):
         encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(train_set, not FLAGS.omit_one_hot)
         _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
         expert_state, expert_action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), transform(decoder_outputs))
         state, action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), predict_seq)
-        pre_mod_p, pre_exp_p = update_discrim(3.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
+        pre_mod_p, pre_exp_p = update_discrim(1.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
         if (i+1) % FLAGS.show_every == 0:
-            print("train discriminator: iter ", (i+1), ' exp: ', pre_exp_p, ' mod: ', pre_mod_p)
-        if pre_mod_p < 0.3:
-            break
+            print("train discriminator: iter ", (i+1), ' exp: ', pre_exp_p.item(), ' mod: ', pre_mod_p.item())
+        # if pre_mod_p < 0.1:
+        #     break
 
     # Save pretrain discriminator model
     torch.save(discrim_net.state_dict(), os.path.normpath(os.path.join(train_dir, 'pretrain-discrim-checkpoint.pt')))
@@ -249,8 +250,6 @@ def train_IRL():
     #####################################################################
     ########################### GAN training ############################
     #####################################################################
-    discrim_net.train()
-    policy_net.train()
     exp_p = []
     mod_p = []
     for i_iter in range(FLAGS.train_GAN_iter):
@@ -262,22 +261,28 @@ def train_IRL():
         # ts1 = time.time()
 
         # t0 = time.time()
-        pre_mod_p, pre_exp_p = update_discrim(2.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
+        pre_mod_p, pre_exp_p = update_discrim(3.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
 
         exp_p.append(pre_exp_p)
         mod_p.append(pre_mod_p)
 
         #update policy network
-        if i_iter > 3 and mod_p[-1] < 0.8:
-            update_policy(policy_net, optimizer_policy, discrim_net, discrim_criterion, state, action,FLAGS.seq_length_in,10.0, device)
-        t1 = time.time()
+        local_mod_p = pre_mod_p.item()
+        if local_mod_p < 0.7:
+            for _ in range(4):
+                _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
+                state, action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), predict_seq)
+                local_mod_p = update_policy(policy_net, optimizer_policy, discrim_net, discrim_criterion, state, action,FLAGS.seq_length_in,10.0, device).item()
+
+
+        # t1 = time.time()
 
         if (i_iter + 1) % FLAGS.show_every == 0:
-            print("train discriminator: iter ", (i_iter+1), ' exp: ', pre_exp_p, ' mod: ', pre_mod_p)
+            print("train GAN: iter ", (i_iter+1), ' exp: ', pre_exp_p.item(), ' mod: ', pre_mod_p.item(), 'after update policy, mod: ', local_mod_p)
 
         if (i_iter + 1) % FLAGS.save_every == 0:
-            os.path.normpath(os.path.join(train_dir, 'policy-checkpoint-{0}.pt'.format(i_iter + 1)))
-            os.path.normpath(os.path.join(train_dir, 'discrim-checkpoint-{0}.pt'.format(i_iter + 1)))
+            torch.save(policy_net.state_dict(),os.path.normpath(os.path.join(train_dir, 'policy-checkpoint-{0}.pt'.format(i_iter + 1))))
+            torch.save(discrim_net.state_dict(),os.path.normpath(os.path.join(train_dir, 'discrim-checkpoint-{0}.pt'.format(i_iter + 1))))
 
 def train():
     actions = define_actions(FLAGS.action)
@@ -476,6 +481,7 @@ def sample():
   if FLAGS.load <= 0:
     raise( ValueError, "Must give an iteration to read parameters from")
 
+
   actions = define_actions( FLAGS.action )
   print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
   sampling = True
@@ -508,7 +514,14 @@ def sample():
       if not FLAGS.stochastic:
           srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
       else:
-          _,_,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
+          # _,_,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
+          mean,std,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
+          print("mean: max {}, min {}; std: max{}, min{}".format(
+            torch.max(mean).item(),
+            torch.min(mean).item(),
+            torch.max(std).item(),
+            torch.min(std).item(),
+          ))
       srnn_loss = nn.MSELoss(reduction='mean')(srnn_poses, transform(decoder_outputs))
       srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(), data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot)
 

@@ -7,11 +7,16 @@ NOW=$(date +"%Y%m%d%H%M%S")
 
 
 
-#experiments for the write up.
-python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --save_every 2000 --test_every 2000 --stochastic --irl_training --skip_pretrain_policy
+# #experiments for the write up.
+# python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --save_every 2000 --test_every 2000 --stochastic --irl_training \
+#  --skip_pretrain_policy
+
+# for sample
+python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --save_every 2000 --test_every 2000 --stochastic --irl_training \
+--skip_pretrain_policy --sample --load 20000
 # python src/translate.py --learning_rate 0.005 --residual_velocities --architecture basic 2>&1 | tee logs/untied.txt
 # python src/translate.py --learning_rate 0.005 --residual_velocities
-# python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --stochastic --irl_training --sample --load 44000
+# python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --stochastic --irl_training --sample --load 50000
 # python src/translate.py --learning_rate 0.005 --residual_velocities --omit_one_hot 2>&1 | tee logs/upsup.txt
 
 
