@@ -165,10 +165,13 @@ def train_IRL():
             start_time = time.time()
             encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(train_set, not FLAGS.omit_one_hot)
             policy_net.train()
-            means,stds, _ , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
+            means,logstds, _ , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
             optimizer.zero_grad()
+            # train on residual
             target = (transform(decoder_outputs) -transform(decoder_inputs))[:,:,:policy_net.HUMAN_SIZE]
-            step_loss = policy_net.loss(means, stds, target)
+            # target = transform(decoder_outputs)[:,:,:policy_net.HUMAN_SIZE]
+
+            step_loss = policy_net.loss(means, logstds, target)
             step_loss.backward()
             torch.nn.utils.clip_grad_norm_(policy_net.parameters(),FLAGS.max_gradient_norm)
             optimizer.step()
@@ -190,9 +193,9 @@ def train_IRL():
             if current_step % FLAGS.test_every == 0:
                 encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(test_set, not FLAGS.omit_one_hot)
                 policy_net.eval()
-                means, stds, _, _= policy_net(transform(encoder_inputs), transform(decoder_inputs))
+                means, logstds, _, _= policy_net(transform(encoder_inputs), transform(decoder_inputs))
                 target = (transform(decoder_outputs) - transform(decoder_inputs))[:,:,:policy_net.HUMAN_SIZE]
-                step_loss = policy_net.loss(means, stds, target)
+                step_loss = policy_net.loss(means, logstds, target)
                 val_loss = step_loss
                 print("traing generator, iter {0:04d}: val loss: {1:.4f}".format(current_step, val_loss))
 
@@ -269,7 +272,7 @@ def train_IRL():
         #update policy network
         local_mod_p = pre_mod_p.item()
         if local_mod_p < 0.7:
-            for _ in range(4):
+            for _ in range(2):
                 _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
                 state, action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), predict_seq)
                 local_mod_p = update_policy(policy_net, optimizer_policy, discrim_net, discrim_criterion, state, action,FLAGS.seq_length_in,10.0, device).item()
@@ -500,12 +503,25 @@ def sample():
   srnn_gts_euler = get_srnn_gts( actions, model, test_set, data_mean,
                             data_std, dim_to_ignore, not FLAGS.omit_one_hot )
 
+  # calculate a test loss on test dataset
+
+  encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch(test_set, not FLAGS.omit_one_hot )
+  model.eval()
+  mean, logstd, output, _ = model(transform(encoder_inputs), transform(decoder_inputs))
+  step_loss = nn.MSELoss(reduction='mean')(output[:,:,:model.HUMAN_SIZE],transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
+  print("test loss on a random batch: {}", step_loss)
   # Clean and create a new h5 file of samples
   SAMPLES_FNAME = 'samples.h5'
   try:
     os.remove( SAMPLES_FNAME )
   except OSError:
     pass
+
+  print()
+  print("{0: <16} |".format("milliseconds"), end="")
+  for ms in [80, 160, 320, 400, 560, 1000]:
+      print(" {0:5d} |".format(ms), end="")
+  print()
 
   for action in actions:
 
@@ -515,15 +531,54 @@ def sample():
           srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
       else:
           # _,_,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
-          mean,std,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
-          print("mean: max {}, min {}; std: max{}, min{}".format(
-            torch.max(mean).item(),
-            torch.min(mean).item(),
-            torch.max(std).item(),
-            torch.min(std).item(),
-          ))
+          mean,logstd,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
       srnn_loss = nn.MSELoss(reduction='mean')(srnn_poses, transform(decoder_outputs))
       srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(), data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot)
+
+      ## calculate srnn loss for each action
+      # Save the errors here
+      mean_errors = np.zeros( (len(srnn_pred_expmap), srnn_pred_expmap[0].shape[0]) )
+
+      # Training is done in exponential map, but the error is reported in
+      # Euler angles, as in previous work.
+      # See https://github.com/asheshjain399/RNNexp/issues/6#issuecomment-247769197
+      N_SEQUENCE_TEST = 8
+      for i in np.arange(N_SEQUENCE_TEST):
+        eulerchannels_pred = srnn_pred_expmap[i]
+
+        # Convert from exponential map to Euler angles
+        for j in np.arange( eulerchannels_pred.shape[0] ):
+          for k in np.arange(3,97,3):
+            eulerchannels_pred[j,k:k+3] = data_utils.rotmat2euler(
+              data_utils.expmap2rotmat( eulerchannels_pred[j,k:k+3] ))
+
+        # The global translation (first 3 entries) and global rotation
+        # (next 3 entries) are also not considered in the error, so the_key
+        # are set to zero.
+        # See https://github.com/asheshjain399/RNNexp/issues/6#issuecomment-249404882
+        gt_i=np.copy(srnn_gts_euler[action][i])
+        gt_i[:,0:6] = 0
+        # Now compute the l2 error. The following is numpy port of the error
+        # function provided by Ashesh Jain (in matlab), available at
+        # https://github.com/asheshjain399/RNNexp/blob/srnn/structural_rnn/CRFProblems/H3.6m/dataParser/Utils/motionGenerationError.m#L40-L54
+        idx_to_use = np.where( np.std( gt_i, 0 ) > 1e-4 )[0]
+
+        euc_error = np.power( gt_i[:,idx_to_use] - eulerchannels_pred[:,idx_to_use], 2)
+        euc_error = np.sum(euc_error, 1)
+        euc_error = np.sqrt( euc_error )
+        mean_errors[i,:] = euc_error
+
+      # This is simply the mean error over the N_SEQUENCE_TEST examples
+      mean_mean_errors = np.mean( mean_errors, 0 )
+
+      # Pretty print of the results for 80, 160, 320, 400, 560 and 1000 ms
+      print("{0: <16} |".format(action), end="")
+      for ms in [1,3,7,9,13,24]:
+        if FLAGS.seq_length_out >= ms+1:
+          print(" {0:.3f} |".format( mean_mean_errors[ms] ), end="")
+        else:
+          print("   n/a |", end="")
+      print()
 
       # Save the samples
       with h5py.File( SAMPLES_FNAME, 'a' ) as hf:

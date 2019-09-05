@@ -51,24 +51,25 @@ def get_state_action(encoder_inputs, decoder_inputs, decoder_outputs):
     action = whole_seq[1:, :, :]
     return state, action
 
-# calculate the negative log likihood of a normal distribution sequence, we can get rid of the constant
-def nll_gauss(mean, std, x):
+# calculate the negative log likihood of a normal distribution sequence,
+def nll_gauss(mean, logstd, x):
     pi = torch.FloatTensor([np.pi])
     if mean.is_cuda:
         pi = pi.cuda()
-    nll_element = (x - mean).pow(2) / std.pow(2) + 2*torch.log(std) + torch.log(2*pi)
+    nll_element = (x - mean).pow(2) * torch.exp(-1.0 * logstd) + 2.0*logstd + torch.log(2.0*pi)
+    # print("max {} , min {}".format(torch.max(nll_element).item(), torch.min(nll_element).item()))
     return 0.5 * torch.sum(nll_element)
 
 #Sampling a sequence to perform reparametrization trick
-def reparam_sample_gauss(mean, std):
-    eps = torch.FloatTensor(std.size()).normal_()
+def reparam_sample_gauss(mean, logstd):
+    eps = torch.FloatTensor(logstd.size()).normal_()
     if mean.is_cuda:
         eps = eps.cuda()
-    return eps.mul(std).add_(mean)
+    return eps.mul(torch.exp(logstd)).add_(mean)
 
 # Given var and sampled result, get the mean
-def reverse_sample_gauss(std, sample):
-    eps = torch.FloatTensor(var.size()).normal_()
+def reverse_sample_gauss(logstd, sample):
+    eps = torch.FloatTensor(logstd.size()).normal_()
     if var.is_cuda:
         eps = eps.cuda()
-    return sample.sub_(eps.mul(std))
+    return sample.sub_(eps.mul(torch.exp(logstd)))
