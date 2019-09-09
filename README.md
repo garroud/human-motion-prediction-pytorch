@@ -51,8 +51,8 @@ Finally, to visualize the samples,
 ```bash
 python src/forward_kinematics.py
 ```
-If it works, it should produce some visualization like 
- 
+If it works, it should produce some visualization like
+
 ![Walking](https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/walking_py.gif)
 
 ### RNN models
@@ -78,6 +78,23 @@ You can substitute the `--action walking` parameter for any action in
 
 or `--action all` (default) to train on all actions.
 
+### Result visualization
+Here is some result visualization on current models.
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walking_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/eating_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/greeting_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/phoning_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/posing_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/purchases_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/sittingdown_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/sitting_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/smoking_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/takingphoto_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/waiting_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walkindog_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walking_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walkingtogether_py.gif" width=350>
 ### Citing
 
 If you use our code, please cite our work
