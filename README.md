@@ -81,8 +81,7 @@ or `--action all` (default) to train on all actions.
 ### Result visualization
 Here is some result visualization on current models.
 
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walking_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/eating_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walking_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/eating_py.gif" width=350>
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/greeting_py.gif" width=350>
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/phoning_py.gif" width=350>
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/posing_py.gif" width=350>
@@ -92,7 +91,7 @@ Here is some result visualization on current models.
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/smoking_py.gif" width=350>
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/takingphoto_py.gif" width=350>
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/waiting_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walkindog_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walkingdog_py.gif" width=350>
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walking_py.gif" width=350>
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walkingtogether_py.gif" width=350>
 ### Citing
