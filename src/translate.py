@@ -53,7 +53,7 @@ parser.add_argument("--load", default=0, type=int, metavar='N', help="Try to loa
 parser.add_argument("--irl_training", action="store_true", help="set to use IRL training scheme")
 parser.add_argument("--train_discrim_iter", default=2000, type=int, metavar="N", help="Pretrain iterations for train discriminator.")
 parser.add_argument("--train_GAN_iter", default=20000, type=int, metavar="N", help="training iterations for the GAN training.")
-parser.add_argument("--policy_lr", default = 0.1, type=float,  metavar="N", help= "learning rate of adversarial training of policy net")
+parser.add_argument("--policy_lr", default = 0.05, type=float,  metavar="N", help= "learning rate of adversarial training of policy net")
 parser.add_argument("--discrim_lr", default = 0.01, type=float, metavar="N", help= "learning rate of adversarial training of descrim net")
 parser.add_argument("--discrim_hidden_size", default=1024, type=int, metavar='N', help= "hidden size of discriminator net")
 parser.add_argument("--discrim_num_layers", default=1, type=int, metavar="N", help="number of layers in the discriminator")
@@ -193,11 +193,13 @@ def train_IRL():
             if current_step % FLAGS.test_every == 0:
                 encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(test_set, not FLAGS.omit_one_hot)
                 policy_net.eval()
-                means, logstds, _, _= policy_net(transform(encoder_inputs), transform(decoder_inputs))
+                means, logstds, output, _= policy_net(transform(encoder_inputs), transform(decoder_inputs))
                 target = (transform(decoder_outputs) - transform(decoder_inputs))[:,:,:policy_net.HUMAN_SIZE]
+                # target = transform(decoder_outputs)[:,:,:policy_net.HUMAN_SIZE]
                 step_loss = policy_net.loss(means, logstds, target)
+                mseloss = nn.MSELoss(reduction='mean')(output[:,:,:policy_net.HUMAN_SIZE],transform(decoder_outputs)[:,:,:policy_net.HUMAN_SIZE])
                 val_loss = step_loss
-                print("traing generator, iter {0:04d}: val loss: {1:.4f}".format(current_step, val_loss))
+                print("traing generator, iter {0:04d}: val loss: {1:.4f} MSE Loss : {2:.4f}".format(current_step, val_loss, mseloss.item()))
 
             # Save the best model
             if best_loss == 0 or best_loss > val_loss:
@@ -264,15 +266,15 @@ def train_IRL():
         # ts1 = time.time()
 
         # t0 = time.time()
-        pre_mod_p, pre_exp_p = update_discrim(3.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
+        pre_mod_p, pre_exp_p = update_discrim(1.0, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, FLAGS.seq_length_in)
 
         exp_p.append(pre_exp_p)
         mod_p.append(pre_mod_p)
 
         #update policy network
         local_mod_p = pre_mod_p.item()
-        if local_mod_p < 0.7:
-            for _ in range(2):
+        if local_mod_p < 0.5:
+            for _ in range(1):
                 _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
                 state, action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), predict_seq)
                 local_mod_p = update_policy(policy_net, optimizer_policy, discrim_net, discrim_criterion, state, action,FLAGS.seq_length_in,10.0, device).item()
@@ -281,6 +283,7 @@ def train_IRL():
         # t1 = time.time()
 
         if (i_iter + 1) % FLAGS.show_every == 0:
+        # if (i_iter + 1) % 1 == 0:
             print("train GAN: iter ", (i_iter+1), ' exp: ', pre_exp_p.item(), ' mod: ', pre_mod_p.item(), 'after update policy, mod: ', local_mod_p)
 
         if (i_iter + 1) % FLAGS.save_every == 0:
@@ -460,7 +463,6 @@ def get_srnn_gts( actions, model, test_set, data_mean, data_std, dim_to_ignore, 
 
     srnn_gt_euler = []
     _, _, srnn_expmap = model.get_batch_srnn( test_set, action )
-
     # expmap -> rotmat -> euler
     for i in np.arange( srnn_expmap.shape[0] ):
       denormed = data_utils.unNormalizeData(srnn_expmap[i,:,:], data_mean, data_std, dim_to_ignore, actions, one_hot )
@@ -477,13 +479,11 @@ def get_srnn_gts( actions, model, test_set, data_mean, data_std, dim_to_ignore, 
 
   return srnn_gts_euler
 
-
 def sample():
   """Sample predictions for srnn's seeds"""
 
   if FLAGS.load <= 0:
     raise( ValueError, "Must give an iteration to read parameters from")
-
 
   actions = define_actions( FLAGS.action )
   print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
@@ -503,13 +503,6 @@ def sample():
   srnn_gts_euler = get_srnn_gts( actions, model, test_set, data_mean,
                             data_std, dim_to_ignore, not FLAGS.omit_one_hot )
 
-  # calculate a test loss on test dataset
-
-  encoder_inputs, decoder_inputs, decoder_outputs = model.get_batch(test_set, not FLAGS.omit_one_hot )
-  model.eval()
-  mean, logstd, output, _ = model(transform(encoder_inputs), transform(decoder_inputs))
-  step_loss = nn.MSELoss(reduction='mean')(output[:,:,:model.HUMAN_SIZE],transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
-  print("test loss on a random batch: {}", step_loss)
   # Clean and create a new h5 file of samples
   SAMPLES_FNAME = 'samples.h5'
   try:
@@ -530,55 +523,9 @@ def sample():
       if not FLAGS.stochastic:
           srnn_poses, _ = model(transform(encoder_inputs), transform(decoder_inputs))
       else:
-          # _,_,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
-          mean,logstd,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
-      srnn_loss = nn.MSELoss(reduction='mean')(srnn_poses, transform(decoder_outputs))
+          _,_,srnn_poses,_ = model(transform(encoder_inputs), transform(decoder_inputs))
+      srnn_loss = nn.MSELoss(reduction='mean')(srnn_poses[:,:,:model.HUMAN_SIZE], transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
       srnn_pred_expmap = data_utils.revert_output_format(srnn_poses.cpu().detach().numpy(), data_mean, data_std, dim_to_ignore, actions, not FLAGS.omit_one_hot)
-
-      ## calculate srnn loss for each action
-      # Save the errors here
-      mean_errors = np.zeros( (len(srnn_pred_expmap), srnn_pred_expmap[0].shape[0]) )
-
-      # Training is done in exponential map, but the error is reported in
-      # Euler angles, as in previous work.
-      # See https://github.com/asheshjain399/RNNexp/issues/6#issuecomment-247769197
-      N_SEQUENCE_TEST = 8
-      for i in np.arange(N_SEQUENCE_TEST):
-        eulerchannels_pred = srnn_pred_expmap[i]
-
-        # Convert from exponential map to Euler angles
-        for j in np.arange( eulerchannels_pred.shape[0] ):
-          for k in np.arange(3,97,3):
-            eulerchannels_pred[j,k:k+3] = data_utils.rotmat2euler(
-              data_utils.expmap2rotmat( eulerchannels_pred[j,k:k+3] ))
-
-        # The global translation (first 3 entries) and global rotation
-        # (next 3 entries) are also not considered in the error, so the_key
-        # are set to zero.
-        # See https://github.com/asheshjain399/RNNexp/issues/6#issuecomment-249404882
-        gt_i=np.copy(srnn_gts_euler[action][i])
-        gt_i[:,0:6] = 0
-        # Now compute the l2 error. The following is numpy port of the error
-        # function provided by Ashesh Jain (in matlab), available at
-        # https://github.com/asheshjain399/RNNexp/blob/srnn/structural_rnn/CRFProblems/H3.6m/dataParser/Utils/motionGenerationError.m#L40-L54
-        idx_to_use = np.where( np.std( gt_i, 0 ) > 1e-4 )[0]
-
-        euc_error = np.power( gt_i[:,idx_to_use] - eulerchannels_pred[:,idx_to_use], 2)
-        euc_error = np.sum(euc_error, 1)
-        euc_error = np.sqrt( euc_error )
-        mean_errors[i,:] = euc_error
-
-      # This is simply the mean error over the N_SEQUENCE_TEST examples
-      mean_mean_errors = np.mean( mean_errors, 0 )
-
-      # Pretty print of the results for 80, 160, 320, 400, 560 and 1000 ms
-      print("{0: <16} |".format(action), end="")
-      for ms in [1,3,7,9,13,24]:
-        if FLAGS.seq_length_out >= ms+1:
-          print(" {0:.3f} |".format( mean_mean_errors[ms] ), end="")
-        else:
-          print("   n/a |", end="")
-      print()
 
       # Save the samples
       with h5py.File( SAMPLES_FNAME, 'a' ) as hf:
@@ -613,8 +560,18 @@ def sample():
         mean_errors[i,:] = euc_error
 
       mean_mean_errors = np.mean( mean_errors, 0 )
-      print( action )
-      print( ','.join(map(str, mean_mean_errors.tolist() )) )
+
+      # Pretty print of the results for 80, 160, 320, 400, 560 and 1000 ms
+      print("{0: <16} |".format(action), end="")
+      for ms in [1,3,7,9,13,24]:
+        if FLAGS.seq_length_out >= ms+1:
+          print(" {0:.3f} |".format( mean_mean_errors[ms] ), end="")
+        else:
+          print("   n/a |", end="")
+      print()
+
+      # print( action )
+      # print( ','.join(map(str, mean_mean_errors.tolist() )) )
 
       with h5py.File( SAMPLES_FNAME, 'a' ) as hf:
         node_name = 'mean_{0}_error'.format( action )

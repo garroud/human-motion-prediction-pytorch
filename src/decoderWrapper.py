@@ -93,13 +93,13 @@ class StochasticDecoderWrapper(nn.Module):
             next_frame = input.clone()
             next_frame[:,:,:self.output_size] = reparam_sample_gauss(mean, logstd) + input[:,:,:self.output_size] if self.residual else reparam_sample_gauss(mean, logstd)
             # output_mean[i] = mean + last_mean if self.residual else mean
-            output_mean[i] = mean
             output_logstd[i] = logstd
             last_mean = last_mean + mean if self.residual else mean
+            output_mean[i] = last_mean
             output_sample[i] = next_frame
             # using the stochastic sample as the input of next stage
-            # input = next_frame[i]
+            input = next_frame
             # use mean as the input of the next stage
-            input = input.clone()
-            input[:,:,:self.output_size] = last_mean
+            # input = input.clone()
+            # input[:,:,:self.output_size] = last_mean
         return output_mean, output_logstd, output_sample, state

@@ -36,12 +36,13 @@ class Discriminator(nn.Module):
         ## The time stamps which exclude from calculation
         self.gru = nn.GRU(self.input_size, self.hidden_size, self.num_layers)
         self.dense1 = nn.Linear(self.hidden_size + self.input_size, self.hidden_size)
-        self.dense2 = nn.Linear(self.hidden_size, 1)
-        
+        self.dense2 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.dense3 = nn.Linear(self.hidden_size, 1)
+
     def forward(self, s, a, h=None): # s: seq * batch * input_size, a: seq * batch * input_size
         p, hidden = self.gru(s, h)
         p = torch.cat([p , a], 2)
-        prob = torch.sigmoid(self.dense2(F.relu(self.dense1(p))))
+        prob = torch.sigmoid(self.dense3(F.relu(self.dense2(F.relu(self.dense1(p))))))
         return prob
 
     def init_hidden(self):
