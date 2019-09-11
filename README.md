@@ -89,7 +89,7 @@ Here is some result visualization on current models. Left column is the visual r
 
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/discussion_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/discussion_py.gif" width=350>
 
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/direction_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/direction_py.gif" width=350>
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/directions_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/directions_py.gif" width=350>
 
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/greeting_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/greeting_py.gif" width=350>
 
