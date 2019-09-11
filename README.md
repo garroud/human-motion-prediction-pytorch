@@ -79,21 +79,36 @@ You can substitute the `--action walking` parameter for any action in
 or `--action all` (default) to train on all actions.
 
 ### Result visualization
-Here is some result visualization on current models.
+Here is some result visualization on current models. Left column is the visual results from imitation learning and the right column is from the original RNN.
 
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walking_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/walking_py.gif" width=350>
+
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/eating_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/eating_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/greeting_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/greeting_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/phoning_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/phoning_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/posing_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/posing_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/purchases_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/purchases_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/sittingdown_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/sittingdown_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/sitting_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/sitting_py.gif" width=350>
+
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/smoking_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/smoking_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/discussion_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/discussion_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/direction_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/direction_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/greeting_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/greeting_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/phoning_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/phoning_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/posing_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/posing_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/purchases_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/purchases_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/sittingdown_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/sittingdown_py.gif" width=350>
+
+<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/sitting_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/sitting_py.gif" width=350>
+
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/takingphoto_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/takingphoto_py.gif" width=350>
+
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/waiting_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/waiting_py.gif" width=350>
+
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walkingdog_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/walkingdog_py.gif" width=350>
-<img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walking_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/walking_py.gif" width=350>
+
 <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/irl_training/figs/walkingtogether_py.gif" width=350> <img src="https://raw.githubusercontent.com/garroud/human-motion-prediction-pytorch/master/figs/walkingtogether_py.gif" width=350>
 ### Citing
 
