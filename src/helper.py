@@ -1,6 +1,7 @@
 from torch import nn
 import torch
 import numpy as np
+from torch import distributions
 
 # update the discriminator
 def update_discrim(dis_times, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, start_idx, train=True):
@@ -56,16 +57,21 @@ def nll_gauss(mean, logstd, x):
     pi = torch.FloatTensor([np.pi])
     if mean.is_cuda:
         pi = pi.cuda()
-    nll_element = (x - mean).pow(2) * torch.exp(-1.0 * logstd) + 2.0*logstd + torch.log(2.0*pi)
-    # print("max {} , min {}".format(torch.max(nll_element).item(), torch.min(nll_element).item()))
-    return 0.5 * torch.sum(nll_element)
+    # nll_element = (x - mean).pow(2) * torch.exp(-1.0 * logstd) + 2.0*logstd + torch.log(2.0*pi)
+    nll_element = torch.abs(x - mean) * torch.exp(-1.0 * logstd) + logstd
+    # print("max {0:.4f} , min {1:.4f}".format(torch.max(torch.abs(x - mean)).item(), torch.min(torch.abs(x - mean)).item()))
+    # return 0.5 * torch.sum(nll_element)
+    return torch.mean(nll_element)
 
 #Sampling a sequence to perform reparametrization trick
 def reparam_sample_gauss(mean, logstd):
-    eps = torch.FloatTensor(logstd.size()).normal_()
+    # eps = torch.FloatTensor(logstd.size()).normal_()
+    eps = distributions.Laplace(torch.tensor([0.0]), torch.tensor([1.0])).sample(logstd.size())
     if mean.is_cuda:
         eps = eps.cuda()
-    return eps.mul(torch.exp(logstd)).add_(mean)
+    res = eps.view(logstd.size()).mul(torch.exp(logstd)).add_(mean)
+    # print(res.size())
+    return res
 
 # Given var and sampled result, get the mean
 def reverse_sample_gauss(logstd, sample):

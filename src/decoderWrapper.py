@@ -98,7 +98,7 @@ class StochasticDecoderWrapper(nn.Module):
             output_mean[i] = last_mean
             output_sample[i] = next_frame
             # using the stochastic sample as the input of next stage
-            input = next_frame
+            # input = next_frame
             # use mean as the input of the next stage
             # input = input.clone()
             # input[:,:,:self.output_size] = last_mean

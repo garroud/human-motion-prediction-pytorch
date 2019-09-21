@@ -20,6 +20,7 @@ import data_utils
 import seq2seq_model
 import discriminator
 import torch
+from torch import autograd
 
 parser = argparse.ArgumentParser(description="Human Motion Model")
 #Learning specification
@@ -165,16 +166,16 @@ def train_IRL():
             start_time = time.time()
             encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(train_set, not FLAGS.omit_one_hot)
             policy_net.train()
-            means,logstds, _ , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
-            optimizer.zero_grad()
-            # train on residual
-            target = (transform(decoder_outputs) -transform(decoder_inputs))[:,:,:policy_net.HUMAN_SIZE]
-            # target = transform(decoder_outputs)[:,:,:policy_net.HUMAN_SIZE]
-
-            step_loss = policy_net.loss(means, logstds, target)
-            step_loss.backward()
-            torch.nn.utils.clip_grad_norm_(policy_net.parameters(),FLAGS.max_gradient_norm)
-            optimizer.step()
+            with autograd.detect_anomaly():
+                means,logstds, _ , _ = policy_net(transform(encoder_inputs),transform(decoder_inputs))
+                optimizer.zero_grad()
+                # train on residual
+                target = (transform(decoder_outputs)-  transform(decoder_inputs))[:,:,:policy_net.HUMAN_SIZE]
+                # target = transform(decoder_outputs)[:,:,:policy_net.HUMAN_SIZE]
+                step_loss = policy_net.loss(means, logstds, target)
+                step_loss.backward()
+                torch.nn.utils.clip_grad_norm_(policy_net.parameters(),FLAGS.max_gradient_norm)
+                optimizer.step()
 
             if current_step % FLAGS.show_every == 0:
                 print("step {0:04d}; step_loss: {1:.4f}".format(current_step, step_loss ))
@@ -230,6 +231,8 @@ def train_IRL():
     # optimizer
     optimizer_policy = torch.optim.SGD(policy_net.parameters(), lr=FLAGS.policy_lr)
     optimizer_discrim = torch.optim.SGD(discrim_net.parameters(), lr=FLAGS.discrim_lr)
+    schedular_policy = torch.optim.lr_scheduler.StepLR(optimizer_policy,step_size=30000, gamma=0.2)
+    schedular_discrim = torch.optim.lr_scheduler.StepLR(optimizer_discrim,step_size=30000, gamma=0.2)
     discrim_criterion = nn.BCELoss()
     discrim_criterion.to(device)
     discrim_net.train()
@@ -258,6 +261,7 @@ def train_IRL():
     exp_p = []
     mod_p = []
     for i_iter in range(FLAGS.train_GAN_iter):
+
         # ts0 = time.time()
         encoder_inputs, decoder_inputs, decoder_outputs = policy_net.get_batch(train_set, not FLAGS.omit_one_hot)
         _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
@@ -273,12 +277,14 @@ def train_IRL():
 
         #update policy network
         local_mod_p = pre_mod_p.item()
-        if local_mod_p < 0.5:
+        if local_mod_p < 0.6:
             for _ in range(1):
                 _,_ , predict_seq , _ = policy_net(transform(encoder_inputs), transform(decoder_inputs))
                 state, action = get_state_action(transform(encoder_inputs), transform(decoder_inputs), predict_seq)
                 local_mod_p = update_policy(policy_net, optimizer_policy, discrim_net, discrim_criterion, state, action,FLAGS.seq_length_in,10.0, device).item()
 
+        schedular_policy.step()
+        schedular_discrim.step()
 
         # t1 = time.time()
 
@@ -289,6 +295,7 @@ def train_IRL():
         if (i_iter + 1) % FLAGS.save_every == 0:
             torch.save(policy_net.state_dict(),os.path.normpath(os.path.join(train_dir, 'policy-checkpoint-{0}.pt'.format(i_iter + 1))))
             torch.save(discrim_net.state_dict(),os.path.normpath(os.path.join(train_dir, 'discrim-checkpoint-{0}.pt'.format(i_iter + 1))))
+
 
 def train():
     actions = define_actions(FLAGS.action)
@@ -324,10 +331,11 @@ def train():
         model.train()
         output, _ = model(transform(encoder_inputs), transform(decoder_inputs))
         optimizer.zero_grad()
-
-        step_loss = model.loss(output[:,:,:model.HUMAN_SIZE], transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
-        step_loss.backward()
+        with autograd.detect_anomaly():
+            step_loss = model.loss(output[:,:,:model.HUMAN_SIZE], transform(decoder_outputs)[:,:,:model.HUMAN_SIZE])
+            step_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(),FLAGS.max_gradient_norm)
+
         optimizer.step()
 
         if current_step % FLAGS.show_every == 0:

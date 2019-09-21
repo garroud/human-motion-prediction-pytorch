@@ -8,7 +8,7 @@ from __future__ import print_function
 import numpy as np
 from six.moves import xrange # pylint: disable=redefined-builtin
 import copy
-
+import torch
 def rotmat2euler( R ):
   """
   Converts a rotation matrix to Euler angles
