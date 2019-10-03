@@ -99,12 +99,11 @@ class Seq2SeqModel(nn.Module):
     def forward(self, encoder_input, decoder_input):
         # h0 = torch.zeros(self.num_layers, self.batch_size, self.rnn_size).cuda()
         features , inter_state = self.encoder(encoder_input,None)
-        last_frame = decoder_input[0,:,:].view(1,-1,self.input_size)
         if not self.stochastic:
-            output, state = self.decoder(last_frame, inter_state)
+            output, state = self.decoder(decoder_input, inter_state)
             return output, state
         else:
-            means, stds, samples, state = self.decoder(last_frame, inter_state)
+            means, stds, samples, state = self.decoder(decoder_input, inter_state)
             return means, stds, samples, state
 
     def get_batch( self, data, actions ):

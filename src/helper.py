@@ -2,7 +2,7 @@ from torch import nn
 import torch
 import numpy as np
 from torch import distributions
-
+from itertools import chain
 # update the discriminator
 def update_discrim(dis_times, discrim_net, optimizer_discrim, discrim_criterion, expert_state, expert_action, state, action, device, start_idx, train=True):
     expert_state = expert_state.detach()
@@ -79,3 +79,12 @@ def reverse_sample_gauss(logstd, sample):
     if var.is_cuda:
         eps = eps.cuda()
     return sample.sub_(eps.mul(torch.exp(logstd)))
+
+# encode to a one hot matrix
+def encode_onehot(labels):
+    classes = set(labels)
+    classes_dict = {c: np.identity(len(classes))[i, :] for i, c in
+                    enumerate(classes)}
+    labels_onehot = np.array(list(map(classes_dict.get, labels)),
+                             dtype=np.int32)
+    return labels_onehot

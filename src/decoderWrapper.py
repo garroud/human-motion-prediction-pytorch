@@ -30,13 +30,34 @@ class DecoderWrapper(nn.Module):
         torch.nn.init.uniform_(self.linear.weight, -0.04 , 0.04)
 
     def forward(self,input,state):
-        output = torch.zeros(self.target_seq_len,input.shape[1], input.shape[2] ,requires_grad=False, dtype=self.dtype).to(self.device)
-        for i in xrange(self.target_seq_len):
-            temp, state = self._cell(input, state)
-            new_frame = input.clone()
-            new_frame[:,:,:self.output_size] = self.linear(temp) + input[:,:,:self.output_size] if self.residual else self.linear(temp)
-            output[i] = new_frame
-        return output, state
+
+        def loop_function(prev, i):
+            return prev
+
+        outputs = []
+        prev = None
+        for i, inp in enumerate(input):
+            if loop_function is not None and prev is not None:
+                inp = loop_function(prev, i)
+
+            # is it useful?
+            inp = inp.detach()
+
+            temp, state = self._cell(inp, state)
+            # ugly hack here
+            if len(inp.shape) == 3:
+                next_frame = self.linear(temp) + inp[:,:,:self.output_size] if self.residual else self.linear(temp)
+                inp[:,:self.output_size] = next_frame
+                outputs.append(next_frame.view(1,input.shape[1], -1))
+            else:
+                next_frame = self.linear(temp) + inp[:,:,:,:self.output_size] if self.residual else self.linear(temp)
+                outputs.append(next_frame.view(1, input.shape[1], input.shape[2], -1))
+                inp[:,:,:self.output_size] = next_frame
+            if loop_function is not None:
+                prev = inp
+
+        outputs = torch.cat(outputs, dim=0)
+        return outputs, state
 
 # Mean and std are seq * batch * 54 , sample is seq * batch * input_size
 class StochasticDecoderWrapper(nn.Module):
@@ -58,13 +79,6 @@ class StochasticDecoderWrapper(nn.Module):
         self.target_seq_len = target_seq_len
         self.device = device
         self.dtype = dtype
-        # self.init_dec = nn.Sequential(
-        #                      nn.Linear(self.rnn_size, self.inter_dim),
-        #                      nn.ReLU())
-        # self.init_mean = nn.Linear(self.rnn_size, self.output_size)
-        # self.dec = nn.Sequential(
-        #                      nn.Linear(self.rnn_size, self.inter_dim),
-        #                      nn.ReLU())
         self.mean = nn.Sequential(
             nn.Linear(self.rnn_size, self.rnn_size),
             nn.ReLU(),
@@ -82,24 +96,44 @@ class StochasticDecoderWrapper(nn.Module):
 
 
     def forward(self, input, state):
-        output_mean = torch.zeros(self.target_seq_len,input.shape[1], self.output_size ,requires_grad=False, dtype=self.dtype).to(self.device)
-        output_logstd = torch.zeros(self.target_seq_len,input.shape[1], self.output_size ,requires_grad=False, dtype=self.dtype).to(self.device)
-        output_sample = torch.zeros(self.target_seq_len,input.shape[1], input.shape[2] ,requires_grad=False, dtype=self.dtype).to(self.device)
-        last_mean = input[0,:,:self.output_size]
-        for i in xrange(self.target_seq_len):
-            temp, state = self._cell(input, state)
-            mean = self.mean(temp)
+
+        def loop_function(prev, i):
+            return prev
+
+        means  = []
+        logstds = []
+        samples = []
+        prev = None
+        
+        for i, inp in enumerate(input):
+            inp_mean = inp
+            if loop_function is not None and prev is not None:
+                inp = loop_function(prev, i)
+
+            inp = inp.detach()
+
+            temp, state = self._cell(inp, state)
             logstd = self.logstd(temp)
-            next_frame = input.clone()
-            next_frame[:,:,:self.output_size] = reparam_sample_gauss(mean, logstd) + input[:,:,:self.output_size] if self.residual else reparam_sample_gauss(mean, logstd)
-            # output_mean[i] = mean + last_mean if self.residual else mean
-            output_logstd[i] = logstd
-            last_mean = last_mean + mean if self.residual else mean
-            output_mean[i] = last_mean
-            output_sample[i] = next_frame
-            # using the stochastic sample as the input of next stage
-            # input = next_frame
-            # use mean as the input of the next stage
-            # input = input.clone()
-            # input[:,:,:self.output_size] = last_mean
+
+            if len(input.shape) == 3:
+                mean = self.mean(temp) + inp[:,:self.output_size] if self.residual else self.mean(temp)
+                sample = reparam_sample_gauss(mean, logstd)
+                means.append(mean.view(1, input.shape[1], input.shape[2]))
+                logstds.append(logstd.view(1, input.shape[1], input.shape[2]))
+                samples.append(sample.view(1, input.shape[1], input.shape[2]))
+                inp[:,:output_size] = samples
+            else:
+                mean = self.mean(temp) + inp[:,:,:self.output_size] if self.residual else self.mean(temp)
+                sample = reparam_sample_gauss(mean, logstd)
+                means.append(mean.view(1, input.shape[1], input.shape[2],-1))
+                logstds.append(logstd.view(1, input.shape[1], input.shape[2],-1))
+                samples.append(sample.view(1, input.shape[1], input.shape[2],-1))
+                inp[:,:,:self.output_size] = sample
+            if loop_function is not None:
+                prev = inp
+
+        output_mean = torch.cat(means, dim=0)
+        output_logstd = torch.cat(logstds, dim=0)
+        output_sample = torch.cat(samples, dim=0)
+
         return output_mean, output_logstd, output_sample, state
