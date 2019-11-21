@@ -9,6 +9,144 @@ import numpy as np
 from six.moves import xrange # pylint: disable=redefined-builtin
 import copy
 import torch
+from itertools import chain
+
+def _some_variables():
+  """
+  We define some variables that are useful to run the kinematic tree
+
+  Args
+    None
+  Returns
+    parent: 32-long vector with parent-child relationships in the kinematic tree
+    offset: 96-long vector with bone lenghts
+    rotInd: 32-long list with indices into angles
+    expmapInd: 32-long list with indices into expmap angles
+  """
+
+  parent = np.array([0, 1, 2, 3, 4, 5, 1, 7, 8, 9,10, 1,12,13,14,15,13,
+                    17,18,19,20,21,20,23,13,25,26,27,28,29,28,31])-1
+
+  offset = np.array([0.000000,0.000000,0.000000,-132.948591,0.000000,0.000000,0.000000,-442.894612,0.000000,0.000000,-454.206447,0.000000,0.000000,0.000000,162.767078,0.000000,0.000000,74.999437,132.948826,0.000000,0.000000,0.000000,-442.894413,0.000000,0.000000,-454.206590,0.000000,0.000000,0.000000,162.767426,0.000000,0.000000,74.999948,0.000000,0.100000,0.000000,0.000000,233.383263,0.000000,0.000000,257.077681,0.000000,0.000000,121.134938,0.000000,0.000000,115.002227,0.000000,0.000000,257.077681,0.000000,0.000000,151.034226,0.000000,0.000000,278.882773,0.000000,0.000000,251.733451,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,99.999627,0.000000,100.000188,0.000000,0.000000,0.000000,0.000000,0.000000,257.077681,0.000000,0.000000,151.031437,0.000000,0.000000,278.892924,0.000000,0.000000,251.728680,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,99.999888,0.000000,137.499922,0.000000,0.000000,0.000000,0.000000])
+  offset = offset.reshape(-1,3)
+  rotInd = [[5, 6, 4],
+            [8, 9, 7],
+            [11, 12, 10],
+            [14, 15, 13],
+            [17, 18, 16],
+            [],
+            [20, 21, 19],
+            [23, 24, 22],
+            [26, 27, 25],
+            [29, 30, 28],
+            [],
+            [32, 33, 31],
+            [35, 36, 34],
+            [38, 39, 37],
+            [41, 42, 40],
+            [],
+            [44, 45, 43],
+            [47, 48, 46],
+            [50, 51, 49],
+            [53, 54, 52],
+            [56, 57, 55],
+            [],
+            [59, 60, 58],
+            [],
+            [62, 63, 61],
+            [65, 66, 64],
+            [68, 69, 67],
+            [71, 72, 70],
+            [74, 75, 73],
+            [],
+            [77, 78, 76],
+            []]
+
+  expmapInd = np.split(np.arange(4,100)-1,32)
+  return parent, offset, rotInd, expmapInd
+
+
+def fkl( angles, parent, offset, rotInd, expmapInd ):
+  """
+  Convert joint angles and bone lenghts into the 3d points of a person.
+  Based on expmap2xyz.m, available at
+  https://github.com/asheshjain399/RNNexp/blob/7fc5a53292dc0f232867beb66c3a9ef845d705cb/structural_rnn/CRFProblems/H3.6m/mhmublv/Motion/exp2xyz.m
+
+  Args
+    angles: 99-long vector with 3d position and 3d joint angles in expmap format
+    parent: 32-long vector with parent-child relationships in the kinematic tree
+    offset: 96-long vector with bone lenghts
+    rotInd: 32-long list with indices into angles
+    expmapInd: 32-long list with indices into expmap angles
+  Returns
+    xyz: 32x3 3d points that represent a person in 3d space
+  """
+
+  assert len(angles) == 99
+  # Structure that indicates parents for each joint
+  njoints   = 32
+  xyzStruct = [dict() for x in range(njoints)]
+
+  for i in np.arange( njoints ):
+
+    if not rotInd[i] : # If the list is empty
+      xangle, yangle, zangle = 0, 0, 0
+    else:
+      xangle = angles[ rotInd[i][0]-1 ]
+      yangle = angles[ rotInd[i][1]-1 ]
+      zangle = angles[ rotInd[i][2]-1 ]
+
+    r = angles[ expmapInd[i] ]
+    thisRotation = expmap2rotmat(r)
+    thisPosition = np.array([xangle, yangle, zangle])
+
+    if parent[i] == -1: # Root node
+      xyzStruct[i]['rotation']  = thisRotation
+      xyzStruct[i]['xyz']      = np.reshape(offset[i,:], (1,3)) + thisPosition
+    else:
+      xyzStruct[i]['xyz'] = (offset[i,:] + thisPosition).dot( xyzStruct[ parent[i] ]['rotation'] ) + xyzStruct[ parent[i] ]['xyz']
+      xyzStruct[i]['rotation'] = thisRotation.dot( xyzStruct[ parent[i] ]['rotation'] )
+
+  xyz = [xyzStruct[i]['xyz'] for i in range(njoints)]
+  xyz = np.array( xyz ).squeeze()
+  xyz = xyz[:,[0,2,1]]
+  # xyz = xyz[:,[2,0,1]]
+  return np.reshape( xyz, [-1] )
+
+def revert_coordinate_space(channels, R0, T0):
+  """
+  Bring a series of poses to a canonical form so they are facing the camera when they start.
+  Adapted from
+  https://github.com/asheshjain399/RNNexp/blob/7fc5a53292dc0f232867beb66c3a9ef845d705cb/structural_rnn/CRFProblems/H3.6m/dataParser/Utils/revertCoordinateSpace.m
+
+  Args
+    channels: n-by-99 matrix of poses
+    R0: 3x3 rotation for the first frame
+    T0: 1x3 position for the first frame
+  Returns
+    channels_rec: The passed poses, but the first has T0 and R0, and the
+                  rest of the sequence is modified accordingly.
+  """
+  n, d = channels.shape
+
+  channels_rec = copy.copy(channels)
+  R_prev = R0
+  T_prev = T0
+  rootRotInd = np.arange(3,6)
+
+  # Loop through the passed posses
+  for ii in range(n):
+    R_diff = expmap2rotmat( channels[ii, rootRotInd] )
+    R = R_diff.dot( R_prev )
+
+    channels_rec[ii, rootRotInd] = rotmat2expmap(R)
+    T = T_prev + ((R_prev.T).dot( np.reshape(channels[ii,:3],[3,1]))).reshape(-1)
+    channels_rec[ii,:3] = T
+    T_prev = T
+    R_prev = R
+
+  return channels_rec
+
 def rotmat2euler( R ):
   """
   Converts a rotation matrix to Euler angles
@@ -149,10 +287,9 @@ def unNormalizeData(normalizedData, data_mean, data_std, dimensions_to_ignore, a
   dimensions_to_use = np.array(dimensions_to_use)
 
   if one_hot:
-    origData[:, dimensions_to_use] = normalizedData[:, :-len(actions)]
+    origData[:, dimensions_to_use] = normalizedData[:, 0:len(dimensions_to_use)]
   else:
     origData[:, dimensions_to_use] = normalizedData
-
   # potentially ineficient, but only done once per experiment
   stdMat = data_std.reshape((1, D))
   stdMat = np.repeat(stdMat, T, axis=0)
@@ -265,7 +402,7 @@ def load_data(path_to_dataset, subjects, actions, one_hot):
   return trainData, completeData
 
 
-def normalize_data( data, data_mean, data_std, dim_to_use, actions, one_hot ):
+def normalize_data( data, data_mean, data_std, dim_to_use, actions, one_hot):
   """
   Normalize input data by removing unused dimensions, subtracting the mean and
   dividing by the standard deviation
@@ -292,14 +429,43 @@ def normalize_data( data, data_mean, data_std, dim_to_use, actions, one_hot ):
   else:
     # TODO hard-coding 99 dimensions for un-normalized human poses
     for key in data.keys():
-      data_out[ key ] = np.divide( (data[key][:, 0:99] - data_mean), data_std )
+      data_out[ key ] = np.divide( (data[key][:, 0:-nactions] - data_mean), data_std )
       data_out[ key ] = data_out[ key ][ :, dim_to_use ]
       data_out[ key ] = np.hstack( (data_out[key], data[key][:,-nactions:]) )
 
   return data_out
 
+def reshape_data( data, actions, one_hot):
+  """
+  for GNN reshape data to coordinate space
 
-def normalization_stats(completeData):
+  Args
+    data: nx99 matrix with data to normalize
+    actions: list of strings with the encoded actions
+    one_hot: whether the data comes with one-hot encoding
+  Returns
+    data_out: the passed data matrix, transformed to coordinate n x 96
+  """
+  data_out = {}
+  nactions = len(actions)
+  parent, offset, rotInd, expmapInd = _some_variables()
+
+  # No one-hot encoding... no need to do anything special
+  for key in data.keys():
+      reshape_data = data[key][:,:] if not one_hot else data[key][:,0:99]
+      reshape_data = revert_coordinate_space(reshape_data, np.eye(3), np.zeros(3))
+      # transform to coordinate space
+      for i in range(reshape_data.shape[0]):
+          reshape_data[i,3:] = fkl(reshape_data[i], parent, offset, rotInd, expmapInd)
+      # if one hot, append the encoding after the feature
+      if one_hot:
+          data_out[key] = np.hstack((reshape_data, data[key][:,-nactions:]))
+      else:
+          data_out[key] = reshape_data
+  return data_out
+
+
+def normalization_stats(completeData, use_GNN=False):
   """"
   Also borrowed for SRNN code. Computes mean, stdev and dimensions to ignore.
   https://github.com/asheshjain399/RNNexp/blob/srnn/structural_rnn/CRFProblems/H3.6m/processdata.py#L33
@@ -317,10 +483,16 @@ def normalization_stats(completeData):
 
   dimensions_to_ignore = []
   dimensions_to_use    = []
-
   dimensions_to_ignore.extend( list(np.where(data_std < 1e-4)[0]) )
   dimensions_to_use.extend( list(np.where(data_std >= 1e-4)[0]) )
-
-  data_std[dimensions_to_ignore] = 1.0
-
+  if use_GNN:
+      # get all the nodes index with DOF >= 1
+      node_idx_use = list(dict.fromkeys(
+        [x // 3 for x in dimensions_to_use if x >= 3]))
+      dimensions_to_use = list(chain(
+        *[[x * 3, x * 3 + 1, x * 3 + 2] for x in node_idx_use]
+      ))
+      dimensions_to_ignore = [x for x in range(99) if not x in dimensions_to_use]
+  data_std[list(np.where(data_std < 1e-4)[0])] = 1.0
+  print(node_idx_use)
   return data_mean, data_std, dimensions_to_ignore, dimensions_to_use

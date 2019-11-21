@@ -71,6 +71,7 @@ class Seq2SeqModel(nn.Module):
         self.batch_size = batch_size
         self.num_layers = num_layers
         self.stochastic = stochastic
+        self.device = device
         # === Create the RNN that will keep the state ===
         print('rnn_size= {0}'.format(rnn_size))
         self.encoder = nn.GRU(input_size=self.input_size,hidden_size=self.rnn_size,num_layers=num_layers)
@@ -106,7 +107,7 @@ class Seq2SeqModel(nn.Module):
             means, stds, samples, state = self.decoder(decoder_input, inter_state)
             return means, stds, samples, state
 
-    def get_batch( self, data, actions ):
+    def get_batch( self, data, actions):
         """Get a random batch of data from the specified bucket, prepare for step.
 
         Args
@@ -145,6 +146,11 @@ class Seq2SeqModel(nn.Module):
           encoder_inputs[i,:,0:self.input_size]  = data_sel[0:self.source_seq_len-1, :]
           decoder_inputs[i,:,0:self.input_size]  = data_sel[self.source_seq_len-1:self.source_seq_len+self.target_seq_len-1, :]
           decoder_outputs[i,:,0:self.input_size] = data_sel[self.source_seq_len:, 0:self.input_size]
+
+        transform = lambda x: torch.tensor(x, dtype=self.dtype).permute(1,0,2).to(device)
+        encoder_inputs = transform(encoder_inputs)
+        decoder_inputs = transform(decoder_inputs)
+        decoder_outputs = transform(decoder_outputs)
 
         return encoder_inputs, decoder_inputs, decoder_outputs
 

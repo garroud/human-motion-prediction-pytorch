@@ -9,59 +9,47 @@ from mpl_toolkits.mplot3d import Axes3D
 import viz
 import time
 import copy
-from data_utils import *
-import argparse
 from data_utils import _some_variables, revert_coordinate_space, fkl
-import random
+import argparse
 
 parser = argparse.ArgumentParser(description="Human Motion Model")
 parser.add_argument('--sample_name', default='samples.h5', type=str, metavar='S', help='input sample file.')
 parser.add_argument('--action_name', default='walking_0', type=str, metavar='S', help='input action.')
 parser.add_argument('--save_name', default='walking_0.gif', type=str, metavar='S', help='input file name')
 parser.add_argument('--save', action='store_true', help="Whether to save the gif")
-parser.add_argument('--print_edge', action='store_true', help="whether to show the edges in the gif")
 args = parser.parse_args()
 
 def main():
 
-  node_index = np.array([1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18, 19, 20, 25, 26, 27, 28]) - 1
-  node_mapping = {}
-  for newIdx,oriIdx in enumerate(node_index):
-      node_mapping[newIdx] = oriIdx
-  off_diag = np.ones([21,21]) - np.eye(21)
-  edges = np.array(np.where(off_diag),dtype=np.float32)
-  edges = np.vectorize(lambda x: node_mapping[x])(edges)
   # Load all the data
   parent, offset, rotInd, expmapInd = _some_variables()
-  num_edges = 30
+
   # numpy implementation
   with h5py.File( args.sample_name, 'r' ) as h5f:
     expmap_gt = h5f['expmap/gt/'+args.action_name][:]
     expmap_pred = h5f['expmap/preds/'+args.action_name][:]
-    edge_weight = h5f['expmap/edge_weight/' + args.action_name][:]
-  # expmap_pred *= 10
+
+
   nframes_gt, nframes_pred = expmap_gt.shape[0], expmap_pred.shape[0]
-  expmap_all = revert_coordinate_space( np.vstack((expmap_gt, expmap_pred)), np.eye(3), np.zeros(3) )
+
+  # Put them together and revert the coordinate space
+  # expmap_all = revert_coordinate_space( np.vstack((expmap_gt, expmap_pred)), np.eye(3), np.zeros(3) )
   # expmap_gt   = expmap_all[:nframes_gt,:]
   # expmap_pred = expmap_all[nframes_gt:,:]
+
   # Compute 3d points for each frame
   xyz_gt, xyz_pred = np.zeros((nframes_gt, 96)), np.zeros((nframes_pred, 96))
-  edges_to_print = np.zeros((nframes_pred, 2, num_edges),dtype=np.int32)
-  def getEdges(edge_weight):
-      edge_weight = list(edge_weight)
-      edge_weight = list(enumerate(edge_weight))
-      top_index = sorted(edge_weight, key=lambda x: x[1], reverse=True)
-      return [x[0] for x in top_index[:num_edges]]
   for i in range( nframes_gt ):
-    xyz_gt[i,:] = fkl( expmap_gt[i,:], parent, offset, rotInd, expmapInd )
+    # xyz_gt[i,:] = fkl( expmap_gt[i,:], parent, offset, rotInd, expmapInd )
+    xyz_gt[i,:] = expmap_gt[i,3:]
   for i in range( nframes_pred ):
-    xyz_pred[i,:] = fkl( expmap_pred[i,:], parent, offset, rotInd, expmapInd )
-    edges_to_print[i,:,:] = edges[:,getEdges(edge_weight[i])]
-    print(edges_to_print[i])
+    # xyz_pred[i,:] = fkl( expmap_pred[i,:], parent, offset, rotInd, expmapInd )
+    xyz_pred[i,:] = expmap_pred[i,3:]
+
   # === Plot and animate ===
   fig = plt.figure()
   ax = plt.gca(projection='3d')
-  ob = viz.Ax3DPoseEdge(ax, num_edge=num_edges)
+  ob = viz.Ax3DPose(ax)
 
   # Plot the conditioning ground truth
   # for i in range(nframes_gt):
@@ -77,19 +65,22 @@ def main():
   #   # fig.canvas.draw()
   #   plt.pause(0.01)
   to_draw = np.append(xyz_gt, xyz_pred,axis=0)
+
   # dirty workround for generation of gif
   counter = 0
-  def update(x, edges):
+  def update(x):
       nonlocal counter
-      if counter < nframes_gt:
-          res = ob.update(x,print_edge=False)
+      if counter < 25:
           counter += 1
+          return ob.update(x)
       else:
-          res= ob.update(x,edges_to_print[counter-nframes_gt],lcolor="#9b59b6", rcolor="#2ecc71", print_edge=args.print_edge)
-          if counter != nframes_gt + nframes_pred - 1:
+          if counter == 50:
+              counter = 0
+          else:
               counter += 1
-      return res
-  anim = animation.FuncAnimation(fig, update, frames=to_draw, fargs=(edges_to_print,),interval=40)
+          return ob.update(x,lcolor="#9b59b6", rcolor="#2ecc71")
+
+  anim = animation.FuncAnimation(fig, update, frames=to_draw, interval=40)
   if args.save:
       anim.save(args.save_name,writer='imagemagick', fps=25)
   else:

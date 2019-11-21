@@ -5,16 +5,15 @@
 NOW=$(date +"%Y%m%d%H%M%S")
 # python src/translate.py --learning_rate 0.005 --residual_velocities --num_layers 3 2>&1 | tee logs/log-$NOW.txt
 
-
-
 # #experiments for the write up.
 # python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --save_every 2000 --test_every 2000 --stochastic --irl_training \
 #  --skip_pretrain_policy
 
 # for sample
-python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --save_every 2000 --test_every 2000 --stochastic --irl_training \
---skip_pretrain_policy --train_discrim_iter 5000 \
-# --sample --load 2000
+# python src/translate.py --iterations 70000 --learning_rate 0.005 --residual_velocities --save_every 2000 --test_every 2000 --stochastic --irl_training \
+# --train_discrim_iter 10000 --train_GAN_iter 60000
+# --skip_pretrain_policy \
+# --sample --load 30000
 # python src/translate.py --learning_rate 0.005 --residual_velocities --architecture basic 2>&1 | tee logs/untied.txt
 # python src/translate.py --learning_rate 0.005 --residual_velocities
 # python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velocities --stochastic --irl_training --sample --load 50000
@@ -28,7 +27,7 @@ python src/translate.py --iterations 50000 --learning_rate 0.005 --residual_velo
 
 # python src/translate.py --action ${action} --learning_rate 0.05 --seq_length_out 25 --save_every 10000 2>&1 | tee "logs/sample_SA_${action}.txt"
 # python src/translate.py --action ${action} --learning_rate 0.05 --seq_length_out 25 --save_every 10000 2>&1 | tee "logs/sample_SA_${action}.txt"
-# done
+# doneee
 # for action in walking eating smoking discussion directions greeting phoning posing purchases sitting sittingdown takingphoto waiting walkingdog walkingtogether
 # do
 # python src/forward_kinematics.py --sample_name samples_tf.h5 --action_name "${action}_0" --save --save_name "figs/${action}_tf.gif"
