@@ -7,6 +7,12 @@ import h5py
 import os
 from mpl_toolkits.mplot3d import Axes3D
 
+startColor = "0xff0000"
+transform = lambda x : "#" + "".join((["0"] * (8 - len(x)))) + x[2:]
+colors = [transform(startColor)]
+for i in range(10):
+    startColor = hex(int(startColor, 16) - int("0x190000",16) + int("0x000019",16))
+    colors.append(transform(startColor))
 class Ax3DPose(object):
   def __init__(self, ax, lcolor="#3498db", rcolor="#e74c3c"):
     """
@@ -111,7 +117,7 @@ class Ax3DPoseEdge(object):
       x = np.array( [vals[self.edges[0,i], 0], vals[self.edges[1,i], 0]] )
       y = np.array( [vals[self.edges[0,i], 1], vals[self.edges[1,i], 1]] )
       z = np.array( [vals[self.edges[0,i], 2], vals[self.edges[1,i], 2]] )
-      self.plots.append(self.ax.plot(x, y, z, lw=2, c="#5677ab"))
+      self.plots.append(self.ax.plot(x, y, z, lw=1))
     self.ax.set_xlabel("x")
     self.ax.set_ylabel("y")
     self.ax.set_zlabel("z")
@@ -139,7 +145,7 @@ class Ax3DPoseEdge(object):
             self.plots[len(self.I)+j][0].set_xdata(x)
             self.plots[len(self.I)+j][0].set_ydata(y)
             self.plots[len(self.I)+j][0].set_3d_properties(z)
-            self.plots[len(self.I)+j][0].set_color("#5677ab")
+            self.plots[len(self.I)+j][0].set_color(colors[j])
 
     for i in np.arange( len(self.I) ):
       x = np.array( [vals[self.I[i], 0], vals[self.J[i], 0]] )

@@ -14,6 +14,8 @@ import argparse
 from data_utils import _some_variables, revert_coordinate_space, fkl
 import random
 
+
+
 parser = argparse.ArgumentParser(description="Human Motion Model")
 parser.add_argument('--sample_name', default='samples.h5', type=str, metavar='S', help='input sample file.')
 parser.add_argument('--action_name', default='walking_0', type=str, metavar='S', help='input action.')
@@ -33,7 +35,7 @@ def main():
   edges = np.vectorize(lambda x: node_mapping[x])(edges)
   # Load all the data
   parent, offset, rotInd, expmapInd = _some_variables()
-  num_edges = 30
+  num_edges = 10
   # numpy implementation
   with h5py.File( args.sample_name, 'r' ) as h5f:
     expmap_gt = h5f['expmap/gt/'+args.action_name][:]
@@ -51,13 +53,19 @@ def main():
       edge_weight = list(edge_weight)
       edge_weight = list(enumerate(edge_weight))
       top_index = sorted(edge_weight, key=lambda x: x[1], reverse=True)
-      return [x[0] for x in top_index[:num_edges]]
+      # return [x[0] for x in top_index[:num_edges] ]
+      res = [x[0] for x in top_index if x[1] > 0.5]
+      if len(res) > num_edges:
+          return res[:num_edges]
+      else:
+          return res
   for i in range( nframes_gt ):
     xyz_gt[i,:] = fkl( expmap_gt[i,:], parent, offset, rotInd, expmapInd )
   for i in range( nframes_pred ):
     xyz_pred[i,:] = fkl( expmap_pred[i,:], parent, offset, rotInd, expmapInd )
-    edges_to_print[i,:,:] = edges[:,getEdges(edge_weight[i])]
-    print(edges_to_print[i])
+    indexes = getEdges(edge_weight[i])
+    print(indexes)
+    edges_to_print[i,:,:len(indexes)] = edges[:,indexes]
   # === Plot and animate ===
   fig = plt.figure()
   ax = plt.gca(projection='3d')
