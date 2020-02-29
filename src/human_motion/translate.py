@@ -14,9 +14,9 @@ import argparse
 
 import numpy as np
 from six.moves import xrange # pylint: disable=redefined-builtin
-from helper import *
-from data_utils import _some_variables
-import data_utils
+from human_motion.helper import *
+from human_motion.data_utils import _some_variables
+import human_motion.data_utils as data_utils
 import seq2seq_model
 import gnn_module
 import discriminator
@@ -788,48 +788,6 @@ def train():
 
             sys.stdout.flush()
 
-def get_srnn_gts( actions, model, test_set, data_mean, data_std, dim_to_ignore, one_hot, to_euler=True):
-  """
-  Get the ground truths for srnn's sequences, and convert to Euler angles.
-  (the error is always computed in Euler angles).
-
-  Args
-    actions: a list of actions to get ground truths for.
-    model: training model we are using (we only use the "get_batch" method).
-    test_set: dictionary with normalized training data.
-    data_mean: d-long vector with the mean of the training data.
-    data_std: d-long vector with the standard deviation of the training data.
-    dim_to_ignore: dimensions that we are not using to train/predict.
-    one_hot: whether the data comes with one-hot encoding indicating action.
-    to_euler: whether to convert the angles to Euler format or keep thm in exponential map
-
-  Returns
-    srnn_gts_euler: a dictionary where the keys are actions, and the values
-      are the ground_truth, denormalized expected outputs of srnns's seeds.
-  """
-  srnn_gts_euler = {}
-
-  for action in actions:
-
-    srnn_gt_euler = []
-    _, _, srnn_expmap = model.get_batch_srnn(test_set, action)
-    srnn_expmap = srnn_expmap.permute(1,0,2).cpu().detach().numpy()
-    # expmap -> rotmat -> euler
-    for i in np.arange(srnn_expmap.shape[0] ):
-      denormed = data_utils.unNormalizeData(srnn_expmap[i,:,:], data_mean, data_std, dim_to_ignore, actions, one_hot )
-
-      if to_euler:
-        for j in np.arange( denormed.shape[0] ):
-          for k in np.arange(3,97,3):
-            denormed[j,k:k+3] = data_utils.rotmat2euler( data_utils.expmap2rotmat( denormed[j,k:k+3]))
-
-      srnn_gt_euler.append( denormed );
-
-    # Put back in the dictionary
-    srnn_gts_euler[action] = srnn_gt_euler
-
-  return srnn_gts_euler
-
 def sample(use_GNN):
   """Sample predictions for srnn's seeds"""
 
@@ -1091,76 +1049,6 @@ def sample_test(use_GNN,test_val=False):
           hf.create_dataset( node_name, data=mean_mean_errors )
 
     return
-
-
-def define_actions( action ):
-  """
-  Define the list of actions we are using.
-
-  Args
-    action: String with the passed action. Could be "all"
-  Returns
-    actions: List of strings of actions
-  Raises
-    ValueError if the action is not included in H3.6M
-  """
-
-  actions = ["walking", "eating", "smoking", "discussion",  "directions",
-              "greeting", "phoning", "posing", "purchases", "sitting",
-              "sittingdown", "takingphoto", "waiting", "walkingdog",
-              "walkingtogether"]
-
-  if action in actions:
-    return [action]
-
-  if action == "all":
-    return actions
-
-  if action == "all_srnn":
-    return ["walking", "eating", "smoking", "discussion"]
-
-  raise( ValueError, "Unrecognized action: %d" % action )
-
-
-def read_all_data( actions, seq_length_in, seq_length_out, data_dir, one_hot,
-                   use_GNN=False):
-  """
-  Loads data for training/testing and normalizes it.
-
-  Args
-    actions: list of strings (actions) to load
-    seq_length_in: number of frames to use in the burn-in sequence
-    seq_length_out: number of frames to use in the output sequence
-    data_dir: directory to load the data from
-    one_hot: whether to use one-hot encoding per action
-  Returns
-    train_set: dictionary with normalized training data
-    test_set: dictionary with test data
-    data_mean: d-long vector with the mean of the training data
-    data_std: d-long vector with the standard dev of the training data
-    dim_to_ignore: dimensions that are not used becaused stdev is too small
-    dim_to_use: dimensions that we are actually using in the model
-  """
-
-  # === Read training data ===
-  print ("Reading training data (seq_len_in: {0}, seq_len_out {1}).".format(
-           seq_length_in, seq_length_out))
-
-  train_subject_ids = [1,6,7,8,9,11]
-  # train_subject_ids = [1]
-  test_subject_ids = [5]
-
-  train_set, complete_train = data_utils.load_data( data_dir, train_subject_ids, actions, one_hot )
-  test_set,  complete_test  = data_utils.load_data( data_dir, test_subject_ids,  actions, one_hot )
-
-  # Compute normalization stats
-  data_mean, data_std, dim_to_ignore, dim_to_use = data_utils.normalization_stats(complete_train, use_GNN)
-
-  # Normalize -- subtract mean, divide by stdev
-  train_set = data_utils.normalize_data( train_set, data_mean, data_std, dim_to_use, actions, one_hot)
-  test_set  = data_utils.normalize_data( test_set,  data_mean, data_std, dim_to_use, actions, one_hot)
-  print("done reading data.")
-  return train_set, test_set, data_mean, data_std, dim_to_ignore, dim_to_use
 
 
 if __name__ == "__main__":

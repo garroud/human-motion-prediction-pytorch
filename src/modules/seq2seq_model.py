@@ -9,9 +9,8 @@ import random
 import numpy as np
 import os
 from six.moves import xrange  # pylint: disable=redefined-builtin
-import data_utils
 import decoderWrapper
-from helper import *
+from human_motion.helper import *
 import torch
 import torch.nn as nn
 

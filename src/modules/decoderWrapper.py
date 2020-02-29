@@ -6,8 +6,9 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 
 import torch
 import torch.nn as nn
-from helper import *
-from gnn_module import GNNEncoder
+from human_motion.helper import *
+from modules.basic_modules import GNNEncoder
+
 class DecoderWrapper(nn.Module):
     def __init__(self,
                  cell,
@@ -183,15 +184,11 @@ class StochasticDecoderWrapper2(nn.Module):
         self.rec_encode = rec_encode
         self.send_encode = send_encode
         self.mean = nn.Sequential(
-            nn.Linear(node_out_dim, node_out_dim // 2),
-            nn.ReLU(),
-            nn.Linear(node_out_dim // 2, self.output_size)
+            nn.Linear(node_out_dim, self.output_size)
         )
         # instead model std, model log(std) instead
         self.logstd = nn.Sequential(
-            nn.Linear(node_out_dim, node_out_dim//2),
-            nn.ReLU(),
-            nn.Linear(node_out_dim // 2, self.output_size)
+            nn.Linear(node_out_dim, self.output_size)
         )
         self.GNN = GNNEncoder(
             # self.node_out_dim,

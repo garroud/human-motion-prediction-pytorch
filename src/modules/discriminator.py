@@ -7,7 +7,6 @@ import random
 import numpy as np
 import os
 from six.moves import xrange  # pylint: disable=redefined-builtin
-import data_utils
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -48,7 +47,7 @@ class Discriminator(nn.Module):
 
     def init_hidden(self):
         return torch.zeros(self.num_layers, self.batch_size, self.hidden_size)
-        
+
 #
 # # GNN discriminator for GAN  training
 # class GNNDiscriminator(nn.Module):

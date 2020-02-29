@@ -494,5 +494,4 @@ def normalization_stats(completeData, use_GNN=False):
       ))
       dimensions_to_ignore = [x for x in range(99) if not x in dimensions_to_use]
   data_std[list(np.where(data_std < 1e-4)[0])] = 1.0
-  print(node_idx_use)
   return data_mean, data_std, dimensions_to_ignore, dimensions_to_use
