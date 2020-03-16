@@ -51,10 +51,12 @@ class GNNEncoder(nn.Module):
         self.rec_encode = rec_encode
         self.send_encode = send_encode
         self.weight_share = weight_share
+
+        # instead of using prob, output weight for further usage
         self.edge_decode = nn.Sequential(
             nn.Linear(self.edge_out_dim, 1),
-            nn.Sigmoid()
         )
+
         print("Dim of hidden node state is ", self.node_hidden_dim)
         print("Dim of hidden edge state is ", self.edge_hidden_dim)
 
@@ -202,4 +204,3 @@ class MLP(nn.Module):
         x = self.dropout(x)
         x = F.elu(self.fc2(x))
         return self.batch_norm(x)
-        return x

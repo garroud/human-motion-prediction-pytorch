@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from human_motion.helper import *
 from modules.basic_modules import GNNEncoder
+from nri.utils import gumbel_sigmoid, flip_sample
 
 class DecoderWrapper(nn.Module):
     def __init__(self,
@@ -257,3 +258,121 @@ class StochasticDecoderWrapper2(nn.Module):
         output_sample = torch.cat(samples, dim=0)
         output_edgeweight = torch.cat(edge_weights, dim=0)
         return output_mean, output_logstd, output_sample, state, output_edgeweight
+
+# A more compatitable wrapper for the models: stochastic enabled and res enabled
+class EdgeDecoderWrapper(nn.Module):
+    def __init__(self,
+                 cell,
+                 rnn_size,
+                 output_size,
+                 target_seq_len,
+                 device,
+                 node_hidden_dim,
+                 node_out_dim,
+                 edge_hidden_dim,
+                 edge_out_dim,
+                 rec_encode,
+                 send_encode,
+                 num_passing,
+                 edge_residual,
+                 node_residual,
+                 do_prob=0,
+                 mask=None,
+                 tau=1,
+                 dtype=torch.float32):
+        super(EdgeDecoderWrapper, self).__init__()
+        self._cell = cell
+        self.rnn_size = rnn_size
+        self.output_size = output_size
+        self.target_seq_len = target_seq_len
+        self.device = device
+        self.mask = mask
+        self.dtype = dtype
+        self.rec_encode = rec_encode
+        self.send_encode = send_encode
+        self.edge_residual = edge_residual
+        self.node_residual = node_residual
+        self.tau = tau
+        self.mean = nn.Sequential(
+            nn.Linear(node_out_dim, self.output_size)
+        )
+        # instead model std, model log(std) instead
+        self.logstd = nn.Sequential(
+            nn.Linear(node_out_dim, self.output_size)
+        )
+        self.GNN = GNNEncoder(
+            # self.node_out_dim,
+            node_hidden_dim,
+            node_out_dim,
+            edge_hidden_dim,
+            edge_out_dim,
+            rec_encode,
+            send_encode,
+            num_passing,
+            weight_share=False,
+            do_prob=do_prob
+        )
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.uniform_(m.weight, -0.03, 0.03)
+
+    def forward(self, input, state, edge_weight, randomize=False):
+
+        def loop_function(prev, i):
+            return prev
+
+        means  = []
+        logstds = []
+        samples = []
+        edge_weights = []
+        edge_samples = []
+        edge_logits = []
+        prev = None
+        for i, inp in enumerate(input):
+            if loop_function is not None and prev is not None:
+                inp = loop_function(prev, i)
+
+            inp = inp.detach()
+            # _, state = self._cell(inp, state)
+
+            edge_sample = gumbel_sigmoid(edge_weight, self.tau)
+            # edge_sample = flip_sample(edge_weight)
+            edge_weights.append(edge_weight.view(1, input.shape[1],-1))
+            edge_samples.append(edge_sample.view(1, input.shape[1],-1))
+
+            # edge = edge_sample if randomize else torch.sigmoid(edge_weight)
+            edge = edge_sample
+            gnn_out, edge_weight_tmp = self.GNN(state, edge)
+            logstd = self.logstd(gnn_out)
+            logstd = torch.clamp(logstd, -1e8, 10.)
+            mean = self.mean(gnn_out)
+
+            if self.node_residual:
+                mean += inp[:,:,:self.output_size]
+            # edge_weight = edge_weight_tmp + edge_weight \
+            #     if self.edge_residual else edge_weight_tmp
+            edge_logits.append(edge_weight_tmp)
+            edge_weight += edge_weight_tmp
+
+            sample = reparam_sample_gauss(mean, logstd)
+            # sample = tmp + inp[:,:,:self.output_size] if self.residual else tmp
+            if not self.mask is None:
+                mean = mean * self.mask
+                sample = sample * self.mask
+            means.append(mean.view(1, input.shape[1], -1))
+            logstds.append(logstd.view(1, input.shape[1], -1))
+            samples.append(sample.view(1, input.shape[1], -1))
+            # inp[:,:,:self.output_size] = sample if randomize else mean
+            inp[:,:,:self.output_size] = mean
+            _, state = self._cell(inp, state)
+            if loop_function is not None:
+                prev = inp
+
+        output_mean = torch.cat(means, dim=0)
+        output_logstd = torch.cat(logstds, dim=0)
+        output_sample = torch.cat(samples, dim=0)
+        output_edgeweight = torch.cat(edge_weights, dim=0)
+        output_edgesample = torch.cat(edge_samples, dim=0)
+        output_edgelogit = torch.cat(edge_logits, dim=0)
+        return output_mean, output_logstd, output_sample, output_edgelogit, \
+               output_edgeweight, output_edgesample

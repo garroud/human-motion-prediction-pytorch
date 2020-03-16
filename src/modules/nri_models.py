@@ -8,7 +8,7 @@ import numpy as np
 import os
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from modules.basic_modules import *
-from modules.decoderWrapper import StochasticDecoderWrapper2
+from modules.decoderWrapper import EdgeDecoderWrapper
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -96,6 +96,7 @@ class EdgeInferModule(nn.Module):
         send_encode,
         joint_dim,
         device,
+        tau=1,
         num_passing=1,
         weight_share=False,
         do_prob=0,
@@ -145,12 +146,11 @@ class EdgeInferModule(nn.Module):
             dtype,
         )
 
-        self.decoder = StochasticDecoderWrapper2(
+        self.decoder = EdgeDecoderWrapper(
                 core_decoder,
                 self.node_out_dim,
                 output_size,
                 target_seq_len,
-                True,
                 device,
                 self.node_hidden_dim,
                 self.node_out_dim,
@@ -159,19 +159,20 @@ class EdgeInferModule(nn.Module):
                 self.rec_encode,
                 self.send_encode,
                 1,
+                False,
+                True,
                 do_prob,
                 None,
-                dtype,
+                tau,
             )
 
-    def forward(self,x,decoder_input,edge_weight=None):
+    def forward(self,x,decoder_input,edge_weight=None, randomize=False):
 
         x = self.mlp(x)
         x, edge_weight = self.encoder(x, edge_weight)
-        means,_,_,_,edge_weight= self.decoder(decoder_input, x,edge_weight)
+        means,logstds,samples,state,edge_weight, edge_sample= self.decoder(decoder_input, x,edge_weight, randomize)
 
-
-        return means, edge_weight
+        return means,logstds,samples,state,edge_weight, edge_sample
 
 #do some test here
 if __name__ == "__main__":

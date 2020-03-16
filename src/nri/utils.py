@@ -65,6 +65,12 @@ def gumbel_softmax_sample(logits, tau=1, eps=1e-10):
     y = logits + Variable(gumbel_noise)
     return my_softmax(y / tau, axis=-1)
 
+def gumbel_sigmoid(logits, tau=1, eps=1e-10):
+    gumbel_noise = sample_gumbel(logits.size(), eps=eps)
+    if logits.is_cuda:
+        gumbel_noise = gumbel_noise.cuda()
+    y = logits + gumbel_noise
+    return torch.sigmoid(y/tau)
 
 def gumbel_softmax(logits, tau=1, hard=False, eps=1e-10):
     """
@@ -454,13 +460,21 @@ def kl_categorical(preds, log_prior, num_atoms, eps=1e-16):
 
 
 def kl_categorical_uniform(preds, num_atoms, num_edge_types, add_const=False,
-                           eps=1e-6):
-    kl_div = preds * torch.log(preds + eps)
+                           eps=1e-7):
+    preds = torch.relu(preds) + eps
+    kl_div = preds * torch.log(preds)
+
     if add_const:
         const = np.log(num_edge_types)
         kl_div += const
     return kl_div.sum() / (num_atoms * preds.size(0))
+    # return kl_div.mean()
 
+def flip_sample(weights):
+    p = torch.sigmoid(weights).clamp(0.1,0.9)
+    b = torch.bernoulli(p.detach())
+    sample = b * torch.max(p,1.-p)
+    return sample
 
 def nll_gaussian(preds, target, variance, add_const=False):
     neg_log_p = ((preds - target) ** 2 / (2 * variance))
